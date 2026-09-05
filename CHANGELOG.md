@@ -2,6 +2,21 @@
 
 > 这里只记录项目功能、架构和工程能力相关的更新，不记录简历、面试文档等个人整理内容。
 
+## 2026-09-05
+
+### 同步改异步
+
+- 主链路全部 I/O 改为异步：RAG 检索（`vector_db.py`）在线 Query Embedding 与 Rerank（`retriever.py`）改用 `httpx.AsyncClient`；Chroma 同步客户端、`count`/`query`/`upsert` 等阻塞调用统一放入 `asyncio.to_thread` 线程池，避免阻塞事件循环。
+- LLM 调用全部走异步：Query Rewrite（`rag_tool.py`）、城市提取（`model_tool.py`）、行程规划（`trip_planner_agent.py`）均使用 `ChatOpenAI.ainvoke`，不再同步等待大模型返回。
+- 外部服务与基础设施同步异步化：高德地图（`map_service.py`）、天气（`weather_service.py`）使用 `httpx.AsyncClient`；Redis 缓存（`cache_service.py`）切换为 `redis.asyncio`；数据库（`config.py`/`storage_service.py`）使用 SQLAlchemy 异步引擎与会话。
+- 导出链路保留同步实现但移出事件循环：PDF 生成与景点图片下载（`export_service.py` 的 reportlab/urllib）在 `export.py` 路由中通过 `asyncio.to_thread` 执行，保证接口不阻塞。
+- 检索入口全链路异步贯通：`retrieve_travel_guide` → `rerank_guide_chunks` → `search_guide_chunks_with_usage` → Chroma/关键词 fallback，函数签名与缓存读写均为 async。
+
+### RAG 知识库扩展
+
+- 知识库扩展为北京、大理、成都、西安、厦门、三亚、桂林 7 个目的地，`guide_catalog.py` 集中维护 7 份攻略文件与目的地映射。
+- 7 个目的地全部携带 `destination` metadata，Chroma 向量检索、关键词 fallback、Rerank、RAG 缓存按目的地过滤，避免跨目的地污染。
+
 ## 2026-07-26
 
 ### 热门城市动态规划
