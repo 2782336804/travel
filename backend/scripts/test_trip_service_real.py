@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -89,7 +90,7 @@ def main() -> int:
     print(json.dumps(request.model_dump(mode="json"), ensure_ascii=False, indent=2))
     print()
 
-    itinerary = generate_trip_itinerary(request)
+    itinerary = asyncio.run(generate_trip_itinerary(request))
 
     print("=== Itinerary ===")
     print(json.dumps(itinerary.model_dump(mode="json"), ensure_ascii=False, indent=2))

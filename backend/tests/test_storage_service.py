@@ -9,7 +9,12 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from app.models.schemas import TripRequest  # noqa: E402
-from app.services.storage_service import get_itinerary_by_trip_id, save_itinerary  # noqa: E402
+from app.services.storage_service import (  # noqa: E402
+    delete_itinerary_by_trip_id,
+    get_itinerary_by_trip_id,
+    list_saved_itineraries,
+    save_itinerary,
+)
 from app.services.trip_service import generate_trip_itinerary  # noqa: E402
 
 
@@ -29,23 +34,23 @@ def build_trip_request() -> TripRequest:
     )
 
 
-def test_save_itinerary_returns_trip_id() -> None:
+async def test_save_itinerary_returns_trip_id() -> None:
     """测试保存 itinerary 后会返回 trip_id。"""
-    itinerary = generate_trip_itinerary(build_trip_request())
+    itinerary = await generate_trip_itinerary(build_trip_request())
     itinerary.trip_id = f"{itinerary.trip_id}_{uuid.uuid4().hex[:8]}"
 
-    saved_trip_id = save_itinerary(itinerary)
+    saved_trip_id = await save_itinerary(itinerary)
 
     assert saved_trip_id == itinerary.trip_id
 
 
-def test_get_itinerary_by_trip_id_returns_saved_result() -> None:
+async def test_get_itinerary_by_trip_id_returns_saved_result() -> None:
     """测试可以根据 trip_id 读回已保存的 itinerary。"""
-    itinerary = generate_trip_itinerary(build_trip_request())
+    itinerary = await generate_trip_itinerary(build_trip_request())
     itinerary.trip_id = f"{itinerary.trip_id}_{uuid.uuid4().hex[:8]}"
 
-    save_itinerary(itinerary)
-    trip_detail = get_itinerary_by_trip_id(itinerary.trip_id)
+    await save_itinerary(itinerary)
+    trip_detail = await get_itinerary_by_trip_id(itinerary.trip_id)
 
     assert trip_detail is not None
     assert trip_detail.trip_id == itinerary.trip_id
@@ -53,7 +58,22 @@ def test_get_itinerary_by_trip_id_returns_saved_result() -> None:
     assert len(trip_detail.itinerary.days) == 3
 
 
-def test_get_itinerary_by_trip_id_returns_none_for_missing_trip() -> None:
+async def test_get_itinerary_by_trip_id_returns_none_for_missing_trip() -> None:
     """测试查询不存在的 trip_id 时会返回 None。"""
-    trip_detail = get_itinerary_by_trip_id("trip_not_exists")
+    trip_detail = await get_itinerary_by_trip_id("trip_not_exists")
     assert trip_detail is None
+
+
+async def test_list_saved_itineraries_and_delete() -> None:
+    """测试列表与删除接口围绕同一个 trip_id 保持一致。"""
+    itinerary = await generate_trip_itinerary(build_trip_request())
+    itinerary.trip_id = f"{itinerary.trip_id}_{uuid.uuid4().hex[:8]}"
+
+    await save_itinerary(itinerary)
+    trip_list = await list_saved_itineraries()
+    assert trip_list.total >= 1
+    assert any(item.trip_id == itinerary.trip_id for item in trip_list.items)
+
+    deleted = await delete_itinerary_by_trip_id(itinerary.trip_id)
+    assert deleted is True
+    assert await get_itinerary_by_trip_id(itinerary.trip_id) is None

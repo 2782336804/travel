@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -97,52 +98,55 @@ def main() -> int:
     print(json.dumps(request.model_dump(mode="json"), ensure_ascii=False, indent=2))
     print()
 
-    rag_contexts, rewrite_usage, rerank_usage, embedding_usage = collect_trip_context(
-        destination=request.destination,
-        preferences=request.preferences,
-        pace=request.pace,
-        special_notes=request.special_notes,
-        top_k=args.top_k,
-    )
+    async def _run() -> int:
+        rag_contexts, rewrite_usage, rerank_usage, embedding_usage = await collect_trip_context(
+            destination=request.destination,
+            preferences=request.preferences,
+            pace=request.pace,
+            special_notes=request.special_notes,
+            top_k=args.top_k,
+        )
 
-    print("=== Token 消耗 ===")
-    print(f"Query Rewrite: prompt={rewrite_usage.get('prompt_tokens', 0)}, completion={rewrite_usage.get('completion_tokens', 0)}")
-    print(f"Query Embedding: prompt={embedding_usage.get('prompt_tokens', 0)}, completion={embedding_usage.get('completion_tokens', 0)}")
-    print(f"Rerank: prompt={rerank_usage.get('prompt_tokens', 0)}, completion={rerank_usage.get('completion_tokens', 0)}")
-    print()
-
-    print("=== RAG 上下文 ===")
-    if rag_contexts:
-        for index, context in enumerate(rag_contexts[: args.top_k], start=1):
-            print(f"[{index}] {context}")
-            print()
-    else:
-        print("未检索到本地攻略上下文。")
+        print("=== Token 消耗 ===")
+        print(f"Query Rewrite: prompt={rewrite_usage.get('prompt_tokens', 0)}, completion={rewrite_usage.get('completion_tokens', 0)}")
+        print(f"Query Embedding: prompt={embedding_usage.get('prompt_tokens', 0)}, completion={embedding_usage.get('completion_tokens', 0)}")
+        print(f"Rerank: prompt={rerank_usage.get('prompt_tokens', 0)}, completion={rerank_usage.get('completion_tokens', 0)}")
         print()
 
-    draft, planner_usage = generate_planner_draft(
-        request=request,
-        rag_contexts=rag_contexts,
-        day_count=day_count,
-    )
+        print("=== RAG 上下文 ===")
+        if rag_contexts:
+            for index, context in enumerate(rag_contexts[: args.top_k], start=1):
+                print(f"[{index}] {context}")
+                print()
+        else:
+            print("未检索到本地攻略上下文。")
+            print()
 
-    print("=== Planner Token 消耗 ===")
-    print(f"Planner: prompt={planner_usage.get('prompt_tokens', 0)}, completion={planner_usage.get('completion_tokens', 0)}")
-    print()
+        draft, planner_usage = await generate_planner_draft(
+            request=request,
+            rag_contexts=rag_contexts,
+            day_count=day_count,
+        )
 
-    print("=== PlannerDraft ===")
-    if draft is None:
-        print("generate_planner_draft 返回了 None。")
-        print("这通常表示：")
-        print("1. API Key 未配置")
-        print("2. langchain_openai 未安装")
-        print("3. 模型返回的 days 数量与 day_count 不一致")
-        print("4. 模型接口连接失败（例如 base_url / 模型名 / 平台兼容性问题）")
-        print("5. 平台限流或配额不足（例如 429 / 403）")
-        return 1
+        print("=== Planner Token 消耗 ===")
+        print(f"Planner: prompt={planner_usage.get('prompt_tokens', 0)}, completion={planner_usage.get('completion_tokens', 0)}")
+        print()
 
-    print(json.dumps(draft.model_dump(mode="json"), ensure_ascii=False, indent=2))
-    return 0
+        print("=== PlannerDraft ===")
+        if draft is None:
+            print("generate_planner_draft 返回了 None。")
+            print("这通常表示：")
+            print("1. API Key 未配置")
+            print("2. langchain_openai 未安装")
+            print("3. 模型返回的 days 数量与 day_count 不一致")
+            print("4. 模型接口连接失败（例如 base_url / 模型名 / 平台兼容性问题）")
+            print("5. 平台限流或配额不足（例如 429 / 403）")
+            return 1
+
+        print(json.dumps(draft.model_dump(mode="json"), ensure_ascii=False, indent=2))
+        return 0
+
+    return asyncio.run(_run())
 
 
 if __name__ == "__main__":

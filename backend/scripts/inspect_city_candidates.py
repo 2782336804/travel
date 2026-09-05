@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 from pathlib import Path
 import sys
@@ -24,50 +25,53 @@ def main() -> int:
     parser.add_argument("city", help="待检查城市，例如上海")
     args = parser.parse_args()
 
-    resolution = resolve_city(args.city)
-    if resolution.tier is CityCoverageTier.INSUFFICIENT_DATA:
-        print(
-            json.dumps(
-                {
-                    "city": resolution.city,
-                    "tier": resolution.tier.value,
-                    "message": "地图服务无法确认该目的地。",
-                },
-                ensure_ascii=False,
-                indent=2,
+    async def _run() -> int:
+        resolution = await resolve_city(args.city)
+        if resolution.tier is CityCoverageTier.INSUFFICIENT_DATA:
+            print(
+                json.dumps(
+                    {
+                        "city": resolution.city,
+                        "tier": resolution.tier.value,
+                        "message": "地图服务无法确认该目的地。",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
             )
-        )
-        return 1
+            return 1
 
-    pool = collect_city_candidate_pool(
-        city=resolution.city,
-        adcode=resolution.adcode,
-        administrative_level=resolution.administrative_level,
-    )
-    result = {
-        "city": pool.city,
-        "tier": resolution.tier.value,
-        "adcode": resolution.adcode,
-        "administrative_level": resolution.administrative_level,
-        "meets_minimum": pool.meets_minimum,
-        "counts": {
-            category.value: len(pool.candidates_for(category))
-            for category in PlaceCandidateCategory
-        },
-        "shortages": {
-            category.value: shortage
-            for category, shortage in pool.shortages.items()
-        },
-        "samples": {
-            category.value: [
-                candidate.name
-                for candidate in pool.candidates_for(category)[:5]
-            ]
-            for category in PlaceCandidateCategory
-        },
-    }
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if pool.meets_minimum else 2
+        pool = await collect_city_candidate_pool(
+            city=resolution.city,
+            adcode=resolution.adcode,
+            administrative_level=resolution.administrative_level,
+        )
+        result = {
+            "city": pool.city,
+            "tier": resolution.tier.value,
+            "adcode": resolution.adcode,
+            "administrative_level": resolution.administrative_level,
+            "meets_minimum": pool.meets_minimum,
+            "counts": {
+                category.value: len(pool.candidates_for(category))
+                for category in PlaceCandidateCategory
+            },
+            "shortages": {
+                category.value: shortage
+                for category, shortage in pool.shortages.items()
+            },
+            "samples": {
+                category.value: [
+                    candidate.name
+                    for candidate in pool.candidates_for(category)[:5]
+                ]
+                for category in PlaceCandidateCategory
+            },
+        }
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if pool.meets_minimum else 2
+
+    return asyncio.run(_run())
 
 
 if __name__ == "__main__":

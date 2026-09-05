@@ -240,7 +240,7 @@ def _filter_candidates(
     return candidates
 
 
-def collect_city_candidate_pool(
+async def collect_city_candidate_pool(
     city: str,
     adcode: str | None = None,
     administrative_level: str | None = None,
@@ -254,7 +254,7 @@ def collect_city_candidate_pool(
 
     for category, (keyword, type_name) in _CATEGORY_SEARCHES.items():
         try:
-            places = search_places(
+            places = await search_places(
                 keyword=keyword,
                 city=adcode or normalized_city,
                 page_size=page_size,

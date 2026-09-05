@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import sys
 from types import ModuleType
 
@@ -114,6 +115,9 @@ def install_fake_langchain_openai(monkeypatch, result: trip_planner_agent.Planne
             FakeChatOpenAI.last_messages = messages
             return FakeResponse(result.model_dump_json())
 
+        async def ainvoke(self, messages):
+            return self.invoke(messages)
+
     fake_module = ModuleType("langchain_openai")
     fake_module.ChatOpenAI = FakeChatOpenAI
     monkeypatch.setitem(sys.modules, "langchain_openai", fake_module)
@@ -121,11 +125,11 @@ def install_fake_langchain_openai(monkeypatch, result: trip_planner_agent.Planne
     return FakeChatOpenAI, FakeResponse
 
 
-def test_collect_trip_context_calls_rag_tool_with_expected_arguments(monkeypatch) -> None:
+async def test_collect_trip_context_calls_rag_tool_with_expected_arguments(monkeypatch) -> None:
     """测试 collect_trip_context 会把参数正确传给 rag_tool。"""
     captured = {}
 
-    def fake_get_destination_guide_context(destination, preferences, pace, special_notes, top_k):
+    async def fake_get_destination_guide_context(destination, preferences, pace, special_notes, top_k):
         captured["destination"] = destination
         captured["preferences"] = preferences
         captured["pace"] = pace
@@ -144,7 +148,7 @@ def test_collect_trip_context_calls_rag_tool_with_expected_arguments(monkeypatch
         fake_get_destination_guide_context,
     )
 
-    results, _, _, _ = trip_planner_agent.collect_trip_context(
+    results, _, _, _ = await trip_planner_agent.collect_trip_context(
         "大理",
         ["美食", "拍照"],
         pace="轻松",
@@ -161,11 +165,11 @@ def test_collect_trip_context_calls_rag_tool_with_expected_arguments(monkeypatch
     }
 
 
-def test_generate_planner_draft_returns_none_when_api_key_is_missing(monkeypatch) -> None:
+async def test_generate_planner_draft_returns_none_when_api_key_is_missing(monkeypatch) -> None:
     """测试没有配置 LLM_API_KEY 时会直接返回 None。"""
     monkeypatch.setattr(trip_planner_agent, "LLM_API_KEY", "")
 
-    result, usage = trip_planner_agent.generate_planner_draft(
+    result, usage = await trip_planner_agent.generate_planner_draft(
         request=build_trip_request(),
         rag_contexts=["大理古城适合慢游。"],
         day_count=3,
@@ -175,7 +179,7 @@ def test_generate_planner_draft_returns_none_when_api_key_is_missing(monkeypatch
     assert usage == {"prompt_tokens": 0, "completion_tokens": 0}
 
 
-def test_generate_planner_draft_returns_structured_result_with_mock_llm(monkeypatch) -> None:
+async def test_generate_planner_draft_returns_structured_result_with_mock_llm(monkeypatch) -> None:
     """测试 agent 能调用结构化 LLM 并返回 PlannerDraft。"""
     monkeypatch.setattr(trip_planner_agent, "LLM_API_KEY", "test-key")
     monkeypatch.setattr(trip_planner_agent, "LLM_MODEL", "fake-model")
@@ -186,7 +190,7 @@ def test_generate_planner_draft_returns_structured_result_with_mock_llm(monkeypa
     expected_result = build_planner_draft(day_count=3)
     FakeChatOpenAI, _ = install_fake_langchain_openai(monkeypatch, expected_result)
 
-    result, usage = trip_planner_agent.generate_planner_draft(
+    result, usage = await trip_planner_agent.generate_planner_draft(
         request=build_trip_request(),
         rag_contexts=["大理古城适合傍晚散步。", "洱海生态廊道适合骑行。"],
         day_count=3,
@@ -205,7 +209,7 @@ def test_generate_planner_draft_returns_structured_result_with_mock_llm(monkeypa
     }
 
 
-def test_generate_planner_draft_builds_prompt_with_request_and_rag_context(monkeypatch) -> None:
+async def test_generate_planner_draft_builds_prompt_with_request_and_rag_context(monkeypatch) -> None:
     """测试 prompt 中包含用户请求信息和本地攻略上下文。"""
     monkeypatch.setattr(trip_planner_agent, "LLM_API_KEY", "test-key")
     monkeypatch.setattr(trip_planner_agent, "LLM_MODEL", "fake-model")
@@ -216,7 +220,7 @@ def test_generate_planner_draft_builds_prompt_with_request_and_rag_context(monke
     expected_result = build_planner_draft(day_count=3)
     FakeChatOpenAI, _ = install_fake_langchain_openai(monkeypatch, expected_result)
 
-    trip_planner_agent.generate_planner_draft(
+    await trip_planner_agent.generate_planner_draft(
         request=build_trip_request(),
         rag_contexts=["大理古城适合傍晚散步。", "洱海生态廊道适合骑行。"],
         day_count=3,
@@ -234,7 +238,7 @@ def test_generate_planner_draft_builds_prompt_with_request_and_rag_context(monke
     assert "洱海生态廊道适合骑行。" in messages[1][1]
 
 
-def test_generate_planner_draft_returns_none_when_day_count_mismatches(monkeypatch) -> None:
+async def test_generate_planner_draft_returns_none_when_day_count_mismatches(monkeypatch) -> None:
     """测试当 LLM 返回的天数不符合预期时，会回退为 None。"""
     monkeypatch.setattr(trip_planner_agent, "LLM_API_KEY", "test-key")
     monkeypatch.setattr(trip_planner_agent, "LLM_MODEL", "fake-model")
@@ -245,7 +249,7 @@ def test_generate_planner_draft_returns_none_when_day_count_mismatches(monkeypat
     wrong_result = build_planner_draft(day_count=2)
     install_fake_langchain_openai(monkeypatch, wrong_result)
 
-    result, usage = trip_planner_agent.generate_planner_draft(
+    result, usage = await trip_planner_agent.generate_planner_draft(
         request=build_trip_request(),
         rag_contexts=["大理古城适合傍晚散步。"],
         day_count=3,
@@ -254,7 +258,7 @@ def test_generate_planner_draft_returns_none_when_day_count_mismatches(monkeypat
     assert result is None
 
 
-def test_generate_dynamic_planner_draft_uses_poi_id_candidates(monkeypatch) -> None:
+async def test_generate_dynamic_planner_draft_uses_poi_id_candidates(monkeypatch) -> None:
     """动态 Planner 提示词应提供真实候选，并解析只含 POI ID 的草稿。"""
     monkeypatch.setattr(trip_planner_agent, "LLM_API_KEY", "test-key")
     expected_result = trip_planner_agent.DynamicPlannerDraft(
@@ -277,7 +281,7 @@ def test_generate_dynamic_planner_draft_uses_poi_id_candidates(monkeypatch) -> N
     FakeChatOpenAI, _ = install_fake_langchain_openai(monkeypatch, expected_result)
     request = build_trip_request().model_copy(update={"destination": "上海"})
 
-    result, usage = trip_planner_agent.generate_dynamic_planner_draft(
+    result, usage = await trip_planner_agent.generate_dynamic_planner_draft(
         request=request,
         candidate_pool=build_dynamic_candidate_pool(),
         day_count=3,
@@ -291,11 +295,11 @@ def test_generate_dynamic_planner_draft_uses_poi_id_candidates(monkeypatch) -> N
     assert "禁止自行创造或改写 poi_id" in FakeChatOpenAI.last_messages[0][1]
 
 
-def test_generate_dynamic_planner_draft_returns_none_without_api_key(monkeypatch) -> None:
+async def test_generate_dynamic_planner_draft_returns_none_without_api_key(monkeypatch) -> None:
     """没有模型配置时，动态 Planner 应交由服务层执行真实候选降级。"""
     monkeypatch.setattr(trip_planner_agent, "LLM_API_KEY", "")
 
-    result, usage = trip_planner_agent.generate_dynamic_planner_draft(
+    result, usage = await trip_planner_agent.generate_dynamic_planner_draft(
         request=build_trip_request().model_copy(update={"destination": "上海"}),
         candidate_pool=build_dynamic_candidate_pool(),
         day_count=3,
@@ -305,7 +309,7 @@ def test_generate_dynamic_planner_draft_returns_none_without_api_key(monkeypatch
     assert usage == {"prompt_tokens": 0, "completion_tokens": 0}
 
 
-def test_generate_day_edit_draft_accepts_nested_day_shape(monkeypatch) -> None:
+async def test_generate_day_edit_draft_accepts_nested_day_shape(monkeypatch) -> None:
     """测试单日编辑结果即使返回 DayPlan 风格结构，也能被兼容解析。"""
 
     class FakeResponse:
@@ -345,6 +349,9 @@ def test_generate_day_edit_draft_accepts_nested_day_shape(monkeypatch) -> None:
                     ensure_ascii=False,
                 )
             )
+
+        async def ainvoke(self, messages):
+            return self.invoke(messages)
 
     fake_module = ModuleType("langchain_openai")
     fake_module.ChatOpenAI = FakeChatOpenAI
@@ -405,7 +412,7 @@ def test_generate_day_edit_draft_accepts_nested_day_shape(monkeypatch) -> None:
         preserve_constraints=["保留预算结构"],
     )
 
-    result, usage = trip_planner_agent.generate_day_edit_draft(request, target_day)
+    result, usage = await trip_planner_agent.generate_day_edit_draft(request, target_day)
 
     assert result is not None
     assert result.theme == "更轻松的喜洲慢游"

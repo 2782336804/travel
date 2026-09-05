@@ -2,8 +2,8 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import declarative_base
 
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -15,20 +15,30 @@ DB_DIR = BACKEND_DIR / "db"
 DB_DIR.mkdir(parents=True, exist_ok=True)
 
 SQLITE_DB_PATH = DB_DIR / "app.db"
-DATABASE_URL = f"sqlite:///{SQLITE_DB_PATH.as_posix()}"
+DATABASE_URL = f"sqlite+aiosqlite:///{SQLITE_DB_PATH.as_posix()}"
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+engine = create_async_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False},
+)
+AsyncSessionLocal = async_sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+    expire_on_commit=False,
+)
 Base = declarative_base()
 
 
 # 大模型配置
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai_compatible")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_API_KEY_2 = os.getenv("LLM_API_KEY_2", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
+LLM_BASE_URL_2 = os.getenv("LLM_BASE_URL_2", "")
 LLM_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "60"))
-LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "1"))
+LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
 
 
 # RAG / 向量库配置

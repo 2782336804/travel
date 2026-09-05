@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import sys
 
@@ -22,7 +23,7 @@ def main() -> int:
     print(f"collection_name: {CHROMA_COLLECTION_NAME}")
     print()
 
-    written_count = ingest_guide_chunks_to_chroma()
+    written_count = asyncio.run(ingest_guide_chunks_to_chroma())
 
     print("=== 写入完成 ===")
     print(f"written_count: {written_count}")

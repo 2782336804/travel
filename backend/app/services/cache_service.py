@@ -12,9 +12,9 @@ from app.config import (
 )
 
 try:
-    import redis
+    import redis.asyncio as redis_async
 except ImportError:  # pragma: no cover - 依赖未安装时优雅降级
-    redis = None
+    redis_async = None
 
 
 logger = logging.getLogger(__name__)
@@ -27,14 +27,14 @@ def _build_key(key: str) -> str:
     return f"{REDIS_KEY_PREFIX}:{key}"
 
 
-def _get_redis_client():
-    """懒加载 Redis 客户端；不可用时返回 None。"""
+async def _get_redis_client():
+    """懒加载异步 Redis 客户端；不可用时返回 None。"""
     global _redis_client
     global _redis_unavailable_logged
 
     if not REDIS_ENABLED:
         return None
-    if redis is None:
+    if redis_async is None:
         if not _redis_unavailable_logged:
             logger.warning("Redis 已启用，但当前环境未安装 redis 依赖，缓存功能将被跳过。")
             _redis_unavailable_logged = True
@@ -43,8 +43,8 @@ def _get_redis_client():
         return _redis_client
 
     try:
-        client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-        client.ping()
+        client = redis_async.from_url(REDIS_URL, decode_responses=True)
+        await client.ping()
         _redis_client = client
         return _redis_client
     except Exception as exc:  # pragma: no cover - 连接问题时优雅降级
@@ -54,14 +54,14 @@ def _get_redis_client():
         return None
 
 
-def get_cached_json(key: str) -> Any | None:
+async def get_cached_json(key: str) -> Any | None:
     """读取 JSON 缓存；命中失败或 Redis 不可用时返回 None。"""
-    client = _get_redis_client()
+    client = await _get_redis_client()
     if client is None:
         return None
 
     try:
-        raw_value = client.get(_build_key(key))
+        raw_value = await client.get(_build_key(key))
         if raw_value is None:
             return None
         return json.loads(raw_value)
@@ -70,18 +70,18 @@ def get_cached_json(key: str) -> Any | None:
         return None
 
 
-def set_cached_json(
+async def set_cached_json(
     key: str,
     value: Any,
     expire_seconds: int | None = None,
 ) -> None:
     """写入 JSON 缓存；Redis 不可用时直接跳过。"""
-    client = _get_redis_client()
+    client = await _get_redis_client()
     if client is None:
         return
 
     ttl = expire_seconds or REDIS_DEFAULT_TTL_SECONDS
     try:
-        client.set(_build_key(key), json.dumps(value, ensure_ascii=False), ex=ttl)
+        await client.set(_build_key(key), json.dumps(value, ensure_ascii=False), ex=ttl)
     except Exception as exc:  # pragma: no cover - 缓存失败不影响主流程
         logger.debug("写入 Redis 缓存失败：%s", exc)

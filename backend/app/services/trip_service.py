@@ -223,7 +223,7 @@ def _refresh_budget_breakdown(itinerary: Itinerary, request_budget: float | None
     return itinerary
 
 
-def _maybe_enrich_itinerary_with_map_data(
+async def _maybe_enrich_itinerary_with_map_data(
     itinerary: Itinerary,
     city: str | None = None,
     request_budget: float | None = None,
@@ -231,7 +231,7 @@ def _maybe_enrich_itinerary_with_map_data(
     """按开关补充地图信息，并在最后统一刷新预算。"""
     if ENABLE_AMAP_ENRICHMENT:
         try:
-            itinerary = enrich_itinerary_with_map_data(itinerary, city=city)
+            itinerary = await enrich_itinerary_with_map_data(itinerary, city=city)
         except Exception:
             pass
 
@@ -278,13 +278,13 @@ def _candidate_map(
     }
 
 
-def generate_dynamic_trip_itinerary(
+async def generate_dynamic_trip_itinerary(
     request: TripRequest,
     candidate_pool: CityCandidatePool,
 ) -> Itinerary:
     """使用地图候选生成动态城市行程，所有展示实体都由 POI ID 回填。"""
     day_count = max((request.end_date - request.start_date).days + 1, 1)
-    raw_draft, planner_usage = generate_dynamic_planner_draft(
+    raw_draft, planner_usage = await generate_dynamic_planner_draft(
         request=request,
         candidate_pool=candidate_pool,
         day_count=day_count,
@@ -500,18 +500,18 @@ def generate_dynamic_trip_itinerary(
     return _refresh_budget_breakdown(itinerary, request_budget=request.budget)
 
 
-def generate_trip_itinerary(request: TripRequest) -> Itinerary:
+async def generate_trip_itinerary(request: TripRequest) -> Itinerary:
     """生成完整 itinerary，并使用更真实的预算估算方式。"""
     day_count = (request.end_date - request.start_date).days + 1
     day_count = max(day_count, 1)
 
-    rag_contexts, rewrite_usage, rerank_usage, embedding_usage = collect_trip_context(
+    rag_contexts, rewrite_usage, rerank_usage, embedding_usage = await collect_trip_context(
         destination=request.destination,
         preferences=request.preferences,
         pace=request.pace,
         special_notes=request.special_notes,
     )
-    llm_draft, planner_usage = generate_planner_draft(request, rag_contexts, day_count)
+    llm_draft, planner_usage = await generate_planner_draft(request, rag_contexts, day_count)
 
     token_usage = TokenUsage(
         rewrite_prompt_tokens=rewrite_usage.get("prompt_tokens", 0),
@@ -758,14 +758,14 @@ def generate_trip_itinerary(request: TripRequest) -> Itinerary:
         source_notes=source_notes,
         token_usage=token_usage,
     )
-    return _maybe_enrich_itinerary_with_map_data(
+    return await _maybe_enrich_itinerary_with_map_data(
         itinerary,
         city=request.destination,
         request_budget=request.budget,
     )
 
 
-def edit_trip_itinerary(request: TripEditRequest) -> Itinerary:
+async def edit_trip_itinerary(request: TripEditRequest) -> Itinerary:
     """优先使用 LLM 编辑单日行程，失败时回退到规则编辑。"""
     updated_itinerary = request.current_itinerary.model_copy(deep=True)
 
@@ -793,7 +793,7 @@ def edit_trip_itinerary(request: TripEditRequest) -> Itinerary:
             and target_day.meals
             and target_day.meals[0].poi_id
         )
-        day_edit_draft, edit_token_usage = generate_day_edit_draft(request, target_day)
+        day_edit_draft, edit_token_usage = await generate_day_edit_draft(request, target_day)
         if day_edit_draft is not None:
             target_day.theme = day_edit_draft.theme
             if target_day.spots:
@@ -863,7 +863,7 @@ def edit_trip_itinerary(request: TripEditRequest) -> Itinerary:
         or updated_itinerary.budget_breakdown.total
         or None
     )
-    return _maybe_enrich_itinerary_with_map_data(
+    return await _maybe_enrich_itinerary_with_map_data(
         updated_itinerary,
         city=updated_itinerary.destination,
         request_budget=reference_budget,

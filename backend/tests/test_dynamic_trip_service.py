@@ -64,16 +64,23 @@ def build_candidate_pool() -> CityCandidatePool:
     )
 
 
-def test_dynamic_itinerary_fallback_only_uses_candidate_entities(monkeypatch) -> None:
+EMPTY_USAGE = {"prompt_tokens": 0, "completion_tokens": 0}
+
+
+async def test_dynamic_itinerary_fallback_only_uses_candidate_entities(monkeypatch) -> None:
     """模型不可用时也只能从真实候选中选择，不得生成模板地点。"""
     candidate_pool = build_candidate_pool()
+
+    async def fake_generate_dynamic_planner_draft(**_kwargs):
+        return None, EMPTY_USAGE
+
     monkeypatch.setattr(
         trip_service,
         "generate_dynamic_planner_draft",
-        lambda **_kwargs: (None, {"prompt_tokens": 0, "completion_tokens": 0}),
+        fake_generate_dynamic_planner_draft,
     )
 
-    itinerary = trip_service.generate_dynamic_trip_itinerary(
+    itinerary = await trip_service.generate_dynamic_trip_itinerary(
         build_request(),
         candidate_pool,
     )
@@ -100,7 +107,7 @@ def test_dynamic_itinerary_fallback_only_uses_candidate_entities(monkeypatch) ->
     assert any("Planner 当前不可用" in note for note in itinerary.source_notes)
 
 
-def test_dynamic_itinerary_rejects_planner_ids_outside_candidate_pool(monkeypatch) -> None:
+async def test_dynamic_itinerary_rejects_planner_ids_outside_candidate_pool(monkeypatch) -> None:
     """模型只要返回一个越界 ID，整份草稿就必须回退到候选规则方案。"""
     invalid_draft = DynamicPlannerDraft(
         summary="包含越界数据的模型草稿",
@@ -118,16 +125,17 @@ def test_dynamic_itinerary_rejects_planner_ids_outside_candidate_pool(monkeypatc
             for index in range(1, 4)
         ],
     )
+
+    async def fake_generate_dynamic_planner_draft(**_kwargs):
+        return invalid_draft, {"prompt_tokens": 30, "completion_tokens": 20}
+
     monkeypatch.setattr(
         trip_service,
         "generate_dynamic_planner_draft",
-        lambda **_kwargs: (
-            invalid_draft,
-            {"prompt_tokens": 30, "completion_tokens": 20},
-        ),
+        fake_generate_dynamic_planner_draft,
     )
 
-    itinerary = trip_service.generate_dynamic_trip_itinerary(
+    itinerary = await trip_service.generate_dynamic_trip_itinerary(
         build_request(),
         build_candidate_pool(),
     )
@@ -139,7 +147,7 @@ def test_dynamic_itinerary_rejects_planner_ids_outside_candidate_pool(monkeypatc
     assert itinerary.token_usage.planner_prompt_tokens == 30
 
 
-def test_dynamic_itinerary_uses_valid_planner_selections(monkeypatch) -> None:
+async def test_dynamic_itinerary_uses_valid_planner_selections(monkeypatch) -> None:
     """合法草稿应按 ID 回填候选实体，而不是信任模型输出地点名称。"""
     valid_draft = DynamicPlannerDraft(
         summary="适合轻松游览的上海三日方案。",
@@ -158,16 +166,17 @@ def test_dynamic_itinerary_uses_valid_planner_selections(monkeypatch) -> None:
             for index in range(1, 4)
         ],
     )
+
+    async def fake_generate_dynamic_planner_draft(**_kwargs):
+        return valid_draft, {"prompt_tokens": 40, "completion_tokens": 25}
+
     monkeypatch.setattr(
         trip_service,
         "generate_dynamic_planner_draft",
-        lambda **_kwargs: (
-            valid_draft,
-            {"prompt_tokens": 40, "completion_tokens": 25},
-        ),
+        fake_generate_dynamic_planner_draft,
     )
 
-    itinerary = trip_service.generate_dynamic_trip_itinerary(
+    itinerary = await trip_service.generate_dynamic_trip_itinerary(
         build_request(),
         build_candidate_pool(),
     )
@@ -187,7 +196,7 @@ def test_dynamic_itinerary_uses_valid_planner_selections(monkeypatch) -> None:
     assert not any("已自动改用" in note for note in itinerary.source_notes)
 
 
-def test_dynamic_itinerary_edit_preserves_grounded_entity_names(monkeypatch) -> None:
+async def test_dynamic_itinerary_edit_preserves_grounded_entity_names(monkeypatch) -> None:
     """后续智能调整不得把已绑定 POI 的地点名称改成模型自由文本。"""
 
     class FakeDayEditDraft:
@@ -198,28 +207,32 @@ def test_dynamic_itinerary_edit_preserves_grounded_entity_names(monkeypatch) -> 
         meal_notes = "保留真实餐厅，只调整用餐说明。"
         daily_note = "下午出发，放慢节奏。"
 
+    async def fake_generate_dynamic_planner_draft(**_kwargs):
+        return None, EMPTY_USAGE
+
     monkeypatch.setattr(
         trip_service,
         "generate_dynamic_planner_draft",
-        lambda **_kwargs: (None, {"prompt_tokens": 0, "completion_tokens": 0}),
+        fake_generate_dynamic_planner_draft,
     )
-    itinerary = trip_service.generate_dynamic_trip_itinerary(
+    itinerary = await trip_service.generate_dynamic_trip_itinerary(
         build_request(),
         build_candidate_pool(),
     )
     original_spot = itinerary.days[0].spots[0]
     original_meal = itinerary.days[0].meals[0]
+
+    async def fake_generate_day_edit_draft(_request, _target_day):
+        return FakeDayEditDraft(), {"prompt_tokens": 20, "completion_tokens": 10}
+
     monkeypatch.setattr(
         trip_service,
         "generate_day_edit_draft",
-        lambda _request, _target_day: (
-            FakeDayEditDraft(),
-            {"prompt_tokens": 20, "completion_tokens": 10},
-        ),
+        fake_generate_day_edit_draft,
     )
     monkeypatch.setattr(trip_service, "ENABLE_AMAP_ENRICHMENT", False)
 
-    updated = trip_service.edit_trip_itinerary(
+    updated = await trip_service.edit_trip_itinerary(
         TripEditRequest(
             trip_id=itinerary.trip_id,
             current_itinerary=itinerary,
@@ -236,28 +249,33 @@ def test_dynamic_itinerary_edit_preserves_grounded_entity_names(monkeypatch) -> 
     assert updated.days[0].meals[0].notes == FakeDayEditDraft.meal_notes
 
 
-def test_dynamic_edit_removes_spot_without_map_rebinding(monkeypatch) -> None:
+async def test_dynamic_edit_removes_spot_without_map_rebinding(monkeypatch) -> None:
     """动态行程取消景点后不得再把自由活动绑定到其他地图 POI。"""
+
+    async def fake_generate_dynamic_planner_draft(**_kwargs):
+        return None, EMPTY_USAGE
+
     monkeypatch.setattr(
         trip_service,
         "generate_dynamic_planner_draft",
-        lambda **_kwargs: (None, {"prompt_tokens": 0, "completion_tokens": 0}),
+        fake_generate_dynamic_planner_draft,
     )
-    itinerary = trip_service.generate_dynamic_trip_itinerary(
+    itinerary = await trip_service.generate_dynamic_trip_itinerary(
         build_request(),
         build_candidate_pool(),
     )
+
+    async def fake_generate_day_edit_draft(_request, _target_day):
+        return None, EMPTY_USAGE
+
     monkeypatch.setattr(
         trip_service,
         "generate_day_edit_draft",
-        lambda _request, _target_day: (
-            None,
-            {"prompt_tokens": 0, "completion_tokens": 0},
-        ),
+        fake_generate_day_edit_draft,
     )
     monkeypatch.setattr(trip_service, "ENABLE_AMAP_ENRICHMENT", True)
 
-    def assert_no_spot_to_enrich(updated_itinerary, city=None):
+    async def assert_no_spot_to_enrich(updated_itinerary, city=None):
         assert city == "上海"
         assert updated_itinerary.days[0].spots == []
         assert updated_itinerary.days[0].transport == []
@@ -269,7 +287,7 @@ def test_dynamic_edit_removes_spot_without_map_rebinding(monkeypatch) -> None:
         assert_no_spot_to_enrich,
     )
 
-    updated = trip_service.edit_trip_itinerary(
+    updated = await trip_service.edit_trip_itinerary(
         TripEditRequest(
             trip_id=itinerary.trip_id,
             current_itinerary=itinerary,

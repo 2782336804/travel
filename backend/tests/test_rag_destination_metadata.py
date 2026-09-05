@@ -22,7 +22,7 @@ def test_loaded_guide_chunks_have_known_destinations() -> None:
     assert all(chunk["destination"] for chunk in chunks)
 
 
-def test_keyword_fallback_filters_chunks_by_destination(monkeypatch) -> None:
+async def test_keyword_fallback_filters_chunks_by_destination(monkeypatch) -> None:
     """Chroma 不可用时，关键词 fallback 仍不能召回其他目的地的 Chunk。"""
     chunks = [
         {"title": "故宫", "text": "历史建筑", "source": "beijing_guide.md", "destination": "北京"},
@@ -30,14 +30,14 @@ def test_keyword_fallback_filters_chunks_by_destination(monkeypatch) -> None:
     ]
     monkeypatch.setattr(vector_db, "load_guide_chunks", lambda: chunks)
 
-    results = vector_db._search_guide_chunks_by_keywords(
+    results = await vector_db._search_guide_chunks_by_keywords(
         query="历史 建筑", top_k=3, destination="北京"
     )
 
     assert results == [chunks[0]]
 
 
-def test_chroma_search_filters_by_destination_metadata(monkeypatch) -> None:
+async def test_chroma_search_filters_by_destination_metadata(monkeypatch) -> None:
     """Chroma 查询必须显式按 destination metadata 过滤。"""
     captured: dict[str, object] = {}
 
@@ -59,13 +59,13 @@ def test_chroma_search_filters_by_destination_metadata(monkeypatch) -> None:
             }
 
     monkeypatch.setattr(vector_db, "_get_chroma_collection", lambda: FakeCollection())
-    monkeypatch.setattr(
-        vector_db,
-        "_embed_query_with_usage",
-        lambda _: ([0.1, 0.2], {"prompt_tokens": 0, "completion_tokens": 0}),
-    )
 
-    results, _ = vector_db._search_guide_chunks_by_chroma(
+    async def fake_embed_query_with_usage(_query):
+        return [0.1, 0.2], {"prompt_tokens": 0, "completion_tokens": 0}
+
+    monkeypatch.setattr(vector_db, "_embed_query_with_usage", fake_embed_query_with_usage)
+
+    results, _ = await vector_db._search_guide_chunks_by_chroma(
         query="北京历史建筑",
         top_k=3,
         destination="北京",
@@ -75,7 +75,7 @@ def test_chroma_search_filters_by_destination_metadata(monkeypatch) -> None:
     assert results[0]["destination"] == "北京"
 
 
-def test_evaluation_counts_metadata_mismatch_as_cross_destination_pollution(monkeypatch) -> None:
+async def test_evaluation_counts_metadata_mismatch_as_cross_destination_pollution(monkeypatch) -> None:
     """污染检测比较 destination metadata，不依赖文件名中是否含城市中文名。"""
     case = {
         "id": "dali_metadata_check",
@@ -90,14 +90,21 @@ def test_evaluation_counts_metadata_mismatch_as_cross_destination_pollution(monk
         {"title": "大理古城", "text": "大理古城历史文化", "source": "guide-a.md", "destination": "大理"},
         {"title": "故宫", "text": "历史建筑", "source": "guide-b.md", "destination": "北京"},
     ]
-    monkeypatch.setattr(evaluator, "build_destination_query", lambda **_: ("大理 古城", {}))
+
+    async def fake_build_destination_query(**_):
+        return "大理 古城", {}
+
+    async def fake_retrieve_travel_guide_chunks(**_):
+        return chunks, {"prompt_tokens": 0}, {"prompt_tokens": 0}
+
+    monkeypatch.setattr(evaluator, "build_destination_query", fake_build_destination_query)
     monkeypatch.setattr(
         evaluator,
         "retrieve_travel_guide_chunks",
-        lambda **_: (chunks, {"prompt_tokens": 0}, {"prompt_tokens": 0}),
+        fake_retrieve_travel_guide_chunks,
     )
 
-    result = evaluator._evaluate_case(case, {"大理", "北京"})
+    result = await evaluator._evaluate_case(case, {"大理", "北京"})
 
     assert result["pollution_count"] == 1
 

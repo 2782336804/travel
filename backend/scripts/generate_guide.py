@@ -7,6 +7,7 @@
 """
 
 import argparse
+import asyncio
 import json
 import sys
 import time
@@ -54,9 +55,9 @@ def _city_to_filename(city: str) -> str:
 # ── 高德 POI 拉取 ──────────────────────────────────────────────
 
 
-def fetch_pois(city: str, keyword: str, page_size: int) -> list[dict]:
+async def fetch_pois(city: str, keyword: str, page_size: int) -> list[dict]:
     """调用高德 POI 搜索，返回精简字段列表。"""
-    raw = search_places(keyword=keyword, city=city, page_size=page_size)
+    raw = await search_places(keyword=keyword, city=city, page_size=page_size)
     seen_names: set[str] = set()
     pois = []
     for item in raw:
@@ -76,14 +77,14 @@ def fetch_pois(city: str, keyword: str, page_size: int) -> list[dict]:
     return pois
 
 
-def fetch_pois_multi(city: str, keywords: list[str], page_size_each: int) -> list[dict]:
+async def fetch_pois_multi(city: str, keywords: list[str], page_size_each: int) -> list[dict]:
     """用多个关键词搜索 POI，去重合并后返回。"""
     seen_names: set[str] = set()
     all_pois: list[dict] = []
     for i, kw in enumerate(keywords):
         if i > 0:
-            time.sleep(0.5)
-        raw = search_places(keyword=kw, city=city, page_size=page_size_each)
+            await asyncio.sleep(0.5)
+        raw = await search_places(keyword=kw, city=city, page_size=page_size_each)
         for item in raw:
             name = item.get("name", "")
             if name in seen_names:
@@ -217,7 +218,7 @@ def save_guide(city: str, markdown: str) -> Path:
 # ── 主流程 ──────────────────────────────────────────────────────
 
 
-def main() -> None:
+async def main() -> None:
     parser = argparse.ArgumentParser(description="高德 POI + LLM 生成旅行攻略")
     parser.add_argument("--city", required=True, help="城市名，如 北京、杭州")
     parser.add_argument("--spots", type=int, default=5, help="每个关键词的景点数量（默认 5）")
@@ -232,12 +233,12 @@ def main() -> None:
 
     # ① 拉取 POI 数据（多关键词搜索，获取更丰富的商户数据）
     print(f"[1/4] 正在拉取 {city} 的 POI 数据...")
-    spots = fetch_pois_multi(
+    spots = await fetch_pois_multi(
         city,
         [f"{city}景点", f"{city}名胜古迹", f"{city}网红打卡地"],
         args.spots,
     )
-    foods = fetch_pois_multi(
+    foods = await fetch_pois_multi(
         city,
         [
             f"{city}特色小吃",
@@ -248,7 +249,7 @@ def main() -> None:
         ],
         args.foods,
     )
-    hotels = fetch_pois_multi(
+    hotels = await fetch_pois_multi(
         city,
         [
             f"{city}经济型酒店",
@@ -279,11 +280,11 @@ def main() -> None:
         print("[4/4] 已跳过 ChromaDB 入库。")
     else:
         print("[4/4] 正在重新入库 ChromaDB...")
-        count = ingest_guide_chunks_to_chroma()
+        count = await ingest_guide_chunks_to_chroma()
         print(f"      入库完成，当前共 {count} 个片段。")
 
     print(f"\n✅ {city} 攻略生成完成！")
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

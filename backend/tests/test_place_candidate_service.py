@@ -36,17 +36,17 @@ def build_place(
     }
 
 
-def test_collect_city_candidate_pool_queries_three_strict_categories(monkeypatch) -> None:
+async def test_collect_city_candidate_pool_queries_three_strict_categories(monkeypatch) -> None:
     """候选池应按行政区严格查询景点、餐饮和住宿三类 POI。"""
     captured_calls: list[dict[str, object]] = []
 
-    def fake_search_places(**kwargs):
+    async def fake_search_places(**kwargs):
         captured_calls.append(kwargs)
         return [build_place(f"id-{len(captured_calls)}", str(kwargs["keyword"]))]
 
     monkeypatch.setattr(candidate_service, "search_places", fake_search_places)
 
-    pool = candidate_service.collect_city_candidate_pool(
+    pool = await candidate_service.collect_city_candidate_pool(
         city="上海",
         adcode="310000",
         minimum_counts={
@@ -82,7 +82,7 @@ def test_collect_city_candidate_pool_queries_three_strict_categories(monkeypatch
     assert pool.meets_minimum is True
 
 
-def test_candidate_pool_filters_cross_city_missing_coordinates_and_duplicates(monkeypatch) -> None:
+async def test_candidate_pool_filters_cross_city_missing_coordinates_and_duplicates(monkeypatch) -> None:
     """跨城、无坐标和重复 POI 不能进入动态候选池。"""
     raw_places = [
         build_place("valid-1", "上海测试地点"),
@@ -95,13 +95,13 @@ def test_candidate_pool_filters_cross_city_missing_coordinates_and_duplicates(mo
         build_place("missing-location", "无坐标地点", latitude=None),
         build_place("valid-1", "重复地点"),
     ]
-    monkeypatch.setattr(
-        candidate_service,
-        "search_places",
-        lambda **_kwargs: raw_places,
-    )
 
-    pool = candidate_service.collect_city_candidate_pool(
+    async def fake_search_places(**_kwargs):
+        return raw_places
+
+    monkeypatch.setattr(candidate_service, "search_places", fake_search_places)
+
+    pool = await candidate_service.collect_city_candidate_pool(
         city="上海",
         adcode="310000",
         minimum_counts={
@@ -117,19 +117,19 @@ def test_candidate_pool_filters_cross_city_missing_coordinates_and_duplicates(mo
     assert pool.meets_minimum is True
 
 
-def test_candidate_pool_reports_category_shortages(monkeypatch) -> None:
+async def test_candidate_pool_reports_category_shortages(monkeypatch) -> None:
     """任一类别不足时，候选池必须明确给出缺口。"""
-    monkeypatch.setattr(
-        candidate_service,
-        "search_places",
-        lambda **kwargs: (
+
+    async def fake_search_places(**kwargs):
+        return (
             [build_place("spot-1", "上海景点")]
             if kwargs["types"] == "风景名胜"
             else []
-        ),
-    )
+        )
 
-    pool = candidate_service.collect_city_candidate_pool(
+    monkeypatch.setattr(candidate_service, "search_places", fake_search_places)
+
+    pool = await candidate_service.collect_city_candidate_pool(
         city="上海",
         minimum_counts={
             PlaceCandidateCategory.SPOT: 1,
@@ -145,7 +145,7 @@ def test_candidate_pool_reports_category_shortages(monkeypatch) -> None:
     }
 
 
-def test_candidate_pool_accepts_district_pois_by_adcode(monkeypatch) -> None:
+async def test_candidate_pool_accepts_district_pois_by_adcode(monkeypatch) -> None:
     """区县级旅游城市应按 adcode 接受 POI，而不是被上级 cityname 误过滤。"""
     raw_places = [
         build_place(
@@ -161,13 +161,13 @@ def test_candidate_pool_accepts_district_pois_by_adcode(monkeypatch) -> None:
             adcode="620902",
         ),
     ]
-    monkeypatch.setattr(
-        candidate_service,
-        "search_places",
-        lambda **_kwargs: raw_places,
-    )
 
-    pool = candidate_service.collect_city_candidate_pool(
+    async def fake_search_places(**_kwargs):
+        return raw_places
+
+    monkeypatch.setattr(candidate_service, "search_places", fake_search_places)
+
+    pool = await candidate_service.collect_city_candidate_pool(
         city="敦煌",
         adcode="620982",
         administrative_level="district",
@@ -182,20 +182,20 @@ def test_candidate_pool_accepts_district_pois_by_adcode(monkeypatch) -> None:
     assert pool.meets_minimum is True
 
 
-def test_map_search_places_sends_types_and_city_limit(monkeypatch) -> None:
+async def test_map_search_places_sends_types_and_city_limit(monkeypatch) -> None:
     """地图适配层必须把分类和城市强限制传给高德 v3 接口。"""
     captured: dict[str, object] = {}
-    monkeypatch.setattr(map_service, "get_cached_json", lambda _key: None)
-    monkeypatch.setattr(map_service, "set_cached_json", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(map_service, "get_cached_json", async_fake_get_cached)
+    monkeypatch.setattr(map_service, "set_cached_json", async_fake_set_cached)
 
-    def fake_request(path: str, params: dict[str, object]) -> dict[str, object]:
+    async def fake_request(path: str, params: dict[str, object]) -> dict[str, object]:
         captured["path"] = path
         captured["params"] = params
         return {"pois": []}
 
     monkeypatch.setattr(map_service, "_request_amap", fake_request)
 
-    assert map_service.search_places(
+    assert await map_service.search_places(
         keyword="景点",
         city="310000",
         page_size=25,
@@ -214,47 +214,45 @@ def test_map_search_places_sends_types_and_city_limit(monkeypatch) -> None:
     }
 
 
-def test_candidate_pool_wraps_map_failure(monkeypatch) -> None:
+async def test_candidate_pool_wraps_map_failure(monkeypatch) -> None:
     """地图故障应转换为候选采集故障，供 API 返回独立 503。"""
-    monkeypatch.setattr(
-        candidate_service,
-        "search_places",
-        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("高德服务不可用")),
-    )
+
+    async def fail_search_places(**_kwargs):
+        raise RuntimeError("高德服务不可用")
+
+    monkeypatch.setattr(candidate_service, "search_places", fail_search_places)
 
     with pytest.raises(
         candidate_service.CandidateCollectionUnavailableError,
         match="暂时无法获取“上海”的景点候选",
     ) as exc_info:
-        candidate_service.collect_city_candidate_pool(city="上海")
+        await candidate_service.collect_city_candidate_pool(city="上海")
 
     assert exc_info.value.reason == "map_service_unavailable"
     assert exc_info.value.category == "spot"
 
 
-def test_candidate_pool_preserves_safe_amap_reason(monkeypatch) -> None:
+async def test_candidate_pool_preserves_safe_amap_reason(monkeypatch) -> None:
     """候选采集错误应保留脱敏 infocode 和失败类别。"""
-    monkeypatch.setattr(
-        candidate_service,
-        "search_places",
-        lambda **_kwargs: (_ for _ in ()).throw(
-            map_service.AmapServiceError(
-                "高德地图接口调用失败：访问已超出日访问量",
-                reason="10003",
-            )
-        ),
-    )
+
+    async def fail_search_places(**_kwargs):
+        raise map_service.AmapServiceError(
+            "高德地图接口调用失败：访问已超出日访问量",
+            reason="10003",
+        )
+
+    monkeypatch.setattr(candidate_service, "search_places", fail_search_places)
 
     with pytest.raises(
         candidate_service.CandidateCollectionUnavailableError,
     ) as exc_info:
-        candidate_service.collect_city_candidate_pool(city="杭州")
+        await candidate_service.collect_city_candidate_pool(city="杭州")
 
     assert exc_info.value.reason == "10003"
     assert exc_info.value.category == "spot"
 
 
-def test_request_amap_raises_sanitized_business_error(monkeypatch) -> None:
+async def test_request_amap_raises_sanitized_business_error(monkeypatch) -> None:
     """高德业务错误应保留 infocode，但错误文本不得包含 API Key。"""
 
     class FakeResponse:
@@ -269,26 +267,26 @@ def test_request_amap_raises_sanitized_business_error(monkeypatch) -> None:
             }
 
     class FakeClient:
-        def __enter__(self):
+        async def __aenter__(self):
             return self
 
-        def __exit__(self, *_args) -> None:
+        async def __aexit__(self, *_args) -> None:
             return None
 
-        def get(self, *_args, **_kwargs) -> FakeResponse:
+        async def get(self, *_args, **_kwargs) -> FakeResponse:
             return FakeResponse()
 
     monkeypatch.setattr(map_service, "AMAP_API_KEY", "sensitive-test-key")
     monkeypatch.setattr(map_service, "_build_client", lambda: FakeClient())
 
     with pytest.raises(map_service.AmapServiceError) as exc_info:
-        map_service._request_amap("/config/district", {"keywords": "杭州"})
+        await map_service._request_amap("/config/district", {"keywords": "杭州"})
 
     assert exc_info.value.reason == "10003"
     assert "sensitive-test-key" not in str(exc_info.value)
 
 
-def test_request_amap_rejects_non_object_response(monkeypatch) -> None:
+async def test_request_amap_rejects_non_object_response(monkeypatch) -> None:
     """合法 JSON 的根节点若不是对象，也应归一为可诊断的地图错误。"""
 
     class FakeResponse:
@@ -299,20 +297,28 @@ def test_request_amap_rejects_non_object_response(monkeypatch) -> None:
             return []
 
     class FakeClient:
-        def __enter__(self):
+        async def __aenter__(self):
             return self
 
-        def __exit__(self, *_args) -> None:
+        async def __aexit__(self, *_args) -> None:
             return None
 
-        def get(self, *_args, **_kwargs) -> FakeResponse:
+        async def get(self, *_args, **_kwargs) -> FakeResponse:
             return FakeResponse()
 
     monkeypatch.setattr(map_service, "AMAP_API_KEY", "sensitive-test-key")
     monkeypatch.setattr(map_service, "_build_client", lambda: FakeClient())
 
     with pytest.raises(map_service.AmapServiceError) as exc_info:
-        map_service._request_amap("/config/district", {"keywords": "杭州"})
+        await map_service._request_amap("/config/district", {"keywords": "杭州"})
 
     assert exc_info.value.reason == "invalid_response"
     assert "sensitive-test-key" not in str(exc_info.value)
+
+
+async def async_fake_get_cached(_key):
+    return None
+
+
+async def async_fake_set_cached(*_args, **_kwargs):
+    return None

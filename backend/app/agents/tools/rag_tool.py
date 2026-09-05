@@ -127,7 +127,7 @@ def _extract_token_usage(response) -> dict[str, int]:
     return usage
 
 
-def llm_rewrite_query(
+async def llm_rewrite_query(
     destination: str,
     preferences: list[str] | None = None,
     pace: str | None = None,
@@ -159,7 +159,7 @@ def llm_rewrite_query(
     human_prompt = "\n".join(parts)
 
     try:
-        response = llm.invoke([
+        response = await llm.ainvoke([
             ("system", system_prompt),
             ("human", human_prompt),
         ])
@@ -205,14 +205,14 @@ def _rule_based_query(
     return " ".join(part for part in parts if part).strip()
 
 
-def build_destination_query(
+async def build_destination_query(
     destination: str,
     preferences: list[str] | None = None,
     pace: str | None = None,
     special_notes: str | None = None,
 ) -> tuple[str, dict[str, int]]:
     """把目的地、偏好、节奏和备注改写成更贴近检索场景的 query。返回 (query, token_usage)。"""
-    llm_query, token_usage = llm_rewrite_query(
+    llm_query, token_usage = await llm_rewrite_query(
         destination=destination,
         preferences=preferences,
         pace=pace,
@@ -230,14 +230,14 @@ def build_destination_query(
     ), {"prompt_tokens": 0, "completion_tokens": 0}
 
 
-def _build_destination_query(
+async def _build_destination_query(
     destination: str,
     preferences: list[str] | None = None,
     pace: str | None = None,
     special_notes: str | None = None,
 ) -> tuple[str, dict[str, int]]:
     """兼容旧调用，内部转到公开的 query 构造函数。"""
-    return build_destination_query(
+    return await build_destination_query(
         destination=destination,
         preferences=preferences,
         pace=pace,
@@ -245,7 +245,7 @@ def _build_destination_query(
     )
 
 
-def get_destination_guide_context(
+async def get_destination_guide_context(
     destination: str,
     preferences: list[str] | None = None,
     pace: str | None = None,
@@ -253,20 +253,20 @@ def get_destination_guide_context(
     top_k: int = 5,
 ) -> tuple[list[str], dict[str, int], dict[str, int], dict[str, int]]:
     """根据目的地和偏好返回本地攻略片段。返回 (contexts, rewrite_usage, rerank_usage, embedding_usage)。"""
-    query, rewrite_usage = build_destination_query(
+    query, rewrite_usage = await build_destination_query(
         destination=destination,
         preferences=preferences,
         pace=pace,
         special_notes=special_notes,
     )
-    contexts, rerank_usage, embedding_usage = retrieve_travel_guide(
+    contexts, rerank_usage, embedding_usage = await retrieve_travel_guide(
         query=query, top_k=top_k, destination=destination
     )
 
     # 补充检索住宿和餐饮 chunk，确保 LLM 能获取真实商户名
     existing_set = set(contexts)
     for supplement_query in [f"{destination} 住宿 酒店 民宿", f"{destination} 餐饮 美食 餐厅"]:
-        extra_contexts, extra_rerank, extra_embed = retrieve_travel_guide(
+        extra_contexts, extra_rerank, extra_embed = await retrieve_travel_guide(
             query=supplement_query, top_k=2, destination=destination
         )
         for ctx in extra_contexts:

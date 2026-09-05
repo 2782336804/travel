@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 from pathlib import Path
 import sys
@@ -21,25 +22,28 @@ def main() -> int:
     parser.add_argument("--address", default="云南省大理白族自治州大理古城", help="待地理编码的地址")
     args = parser.parse_args()
 
-    print("=== POI 搜索 ===")
-    places = search_places(keyword=args.keyword, city=args.city)
-    print(json.dumps(places, ensure_ascii=False, indent=2))
+    async def _run() -> int:
+        print("=== POI 搜索 ===")
+        places = await search_places(keyword=args.keyword, city=args.city)
+        print(json.dumps(places, ensure_ascii=False, indent=2))
 
-    print("\n=== 地理编码 ===")
-    geocode = geocode_address(address=args.address, city=args.city)
-    print(json.dumps(geocode, ensure_ascii=False, indent=2))
+        print("\n=== 地理编码 ===")
+        geocode = await geocode_address(address=args.address, city=args.city)
+        print(json.dumps(geocode, ensure_ascii=False, indent=2))
 
-    if geocode and geocode.get("latitude") is not None and geocode.get("longitude") is not None:
-        print("\n=== 路线估算（同点位示例）===")
-        route = estimate_route(
-            origin_longitude=geocode["longitude"],
-            origin_latitude=geocode["latitude"],
-            destination_longitude=geocode["longitude"],
-            destination_latitude=geocode["latitude"],
-        )
-        print(json.dumps(route, ensure_ascii=False, indent=2))
+        if geocode and geocode.get("latitude") is not None and geocode.get("longitude") is not None:
+            print("\n=== 路线估算（同点位示例）===")
+            route = await estimate_route(
+                origin_longitude=geocode["longitude"],
+                origin_latitude=geocode["latitude"],
+                destination_longitude=geocode["longitude"],
+                destination_latitude=geocode["latitude"],
+            )
+            print(json.dumps(route, ensure_ascii=False, indent=2))
 
-    return 0
+        return 0
+
+    return asyncio.run(_run())
 
 
 if __name__ == "__main__":

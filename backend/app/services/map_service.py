@@ -36,12 +36,12 @@ def _ensure_amap_api_key() -> None:
         )
 
 
-def _build_client() -> httpx.Client:
-    """创建访问高德 HTTP API 的客户端。"""
-    return httpx.Client(timeout=AMAP_TIMEOUT_SECONDS)
+def _build_client() -> httpx.AsyncClient:
+    """创建访问高德 HTTP API 的异步客户端。"""
+    return httpx.AsyncClient(timeout=AMAP_TIMEOUT_SECONDS)
 
 
-def _request_amap(path: str, params: dict[str, Any]) -> dict[str, Any]:
+async def _request_amap(path: str, params: dict[str, Any]) -> dict[str, Any]:
     """调用高德地图 API 并返回 JSON 结果。"""
     _ensure_amap_api_key()
 
@@ -51,8 +51,8 @@ def _request_amap(path: str, params: dict[str, Any]) -> dict[str, Any]:
     }
 
     try:
-        with _build_client() as client:
-            response = client.get(f"{AMAP_BASE_URL}{path}", params=request_params)
+        async with _build_client() as client:
+            response = await client.get(f"{AMAP_BASE_URL}{path}", params=request_params)
             response.raise_for_status()
             payload = response.json()
     except httpx.TimeoutException as exc:
@@ -119,18 +119,18 @@ def _normalize_cache_text(value: str | None) -> str:
     return value.strip().lower()
 
 
-def geocode_address(address: str, city: str | None = None) -> dict[str, Any] | None:
+async def geocode_address(address: str, city: str | None = None) -> dict[str, Any] | None:
     """根据地址获取经纬度信息。"""
     cache_key = (
         f"map:geocode:{_normalize_cache_text(address)}:{_normalize_cache_text(city or AMAP_DEFAULT_CITY)}"
     )
-    cached_value = get_cached_json(cache_key)
+    cached_value = await get_cached_json(cache_key)
     if cached_value is not None:
         logger.info("map geocode cache hit: address=%s city=%s", address, city or AMAP_DEFAULT_CITY)
         return cached_value
     logger.info("map geocode cache miss: address=%s city=%s", address, city or AMAP_DEFAULT_CITY)
 
-    payload = _request_amap(
+    payload = await _request_amap(
         "/geocode/geo",
         {
             "address": address,
@@ -153,21 +153,21 @@ def geocode_address(address: str, city: str | None = None) -> dict[str, Any] | N
         "latitude": latitude,
         "longitude": longitude,
     }
-    set_cached_json(cache_key, result, expire_seconds=REDIS_MAP_TTL_SECONDS)
+    await set_cached_json(cache_key, result, expire_seconds=REDIS_MAP_TTL_SECONDS)
     return result
 
 
-def resolve_administrative_area(keyword: str) -> dict[str, Any] | None:
+async def resolve_administrative_area(keyword: str) -> dict[str, Any] | None:
     """根据目的地名称查询高德行政区，确认城市或旅游目的地是否存在。"""
     normalized_keyword = _normalize_cache_text(keyword)
     cache_key = f"map:district:{normalized_keyword}"
-    cached_value = get_cached_json(cache_key)
+    cached_value = await get_cached_json(cache_key)
     if cached_value is not None:
         logger.info("map district cache hit: keyword=%s", keyword)
         return cached_value
     logger.info("map district cache miss: keyword=%s", keyword)
 
-    payload = _request_amap(
+    payload = await _request_amap(
         "/config/district",
         {
             "keywords": keyword,
@@ -215,11 +215,11 @@ def resolve_administrative_area(keyword: str) -> dict[str, Any] | None:
         "latitude": latitude,
         "longitude": longitude,
     }
-    set_cached_json(cache_key, result, expire_seconds=REDIS_MAP_TTL_SECONDS)
+    await set_cached_json(cache_key, result, expire_seconds=REDIS_MAP_TTL_SECONDS)
     return result
 
 
-def search_places(
+async def search_places(
     keyword: str = "",
     city: str | None = None,
     page_size: int = 5,
@@ -242,7 +242,7 @@ def search_places(
         f"{_normalize_cache_text(city or AMAP_DEFAULT_CITY)}:"
         f"{page_size}:{page}:{city_limit}"
     )
-    cached_value = get_cached_json(cache_key)
+    cached_value = await get_cached_json(cache_key)
     if cached_value is not None:
         logger.info("map place cache hit: keyword=%s city=%s", keyword, city or AMAP_DEFAULT_CITY)
         return cached_value
@@ -260,7 +260,7 @@ def search_places(
     if city_limit:
         request_params["citylimit"] = "true"
 
-    payload = _request_amap("/place/text", request_params)
+    payload = await _request_amap("/place/text", request_params)
 
     pois = payload.get("pois", [])
     results: list[dict[str, Any]] = []
@@ -284,11 +284,11 @@ def search_places(
             }
         )
 
-    set_cached_json(cache_key, results, expire_seconds=REDIS_MAP_TTL_SECONDS)
+    await set_cached_json(cache_key, results, expire_seconds=REDIS_MAP_TTL_SECONDS)
     return results
 
 
-def estimate_route(
+async def estimate_route(
     origin_longitude: float,
     origin_latitude: float,
     destination_longitude: float,
@@ -300,7 +300,7 @@ def estimate_route(
         f"{origin_longitude:.6f},{origin_latitude:.6f}:"
         f"{destination_longitude:.6f},{destination_latitude:.6f}"
     )
-    cached_value = get_cached_json(cache_key)
+    cached_value = await get_cached_json(cache_key)
     if cached_value is not None:
         logger.info(
             "map route cache hit: origin=%s,%s destination=%s,%s",
@@ -318,7 +318,7 @@ def estimate_route(
         destination_latitude,
     )
 
-    payload = _request_amap(
+    payload = await _request_amap(
         "/direction/driving",
         {
             "origin": f"{origin_longitude},{origin_latitude}",
@@ -343,13 +343,13 @@ def estimate_route(
         "estimated_minutes": round(duration_seconds / 60) if duration_seconds is not None else None,
         "taxi_cost": _parse_float(route.get("taxi_cost")),
     }
-    set_cached_json(cache_key, result, expire_seconds=REDIS_MAP_TTL_SECONDS)
+    await set_cached_json(cache_key, result, expire_seconds=REDIS_MAP_TTL_SECONDS)
     return result
 
 
-def _pick_best_place(keyword: str, city: str | None = None) -> dict[str, Any] | None:
+async def _pick_best_place(keyword: str, city: str | None = None) -> dict[str, Any] | None:
     """优先选择名称匹配且带照片的 POI，避免首条结果没有图片。"""
-    results = search_places(keyword=keyword, city=city, page_size=5)
+    results = await search_places(keyword=keyword, city=city, page_size=5)
     if not results:
         return None
 
@@ -369,15 +369,15 @@ def _pick_best_place(keyword: str, city: str | None = None) -> dict[str, Any] | 
     return results[0]
 
 
-def _enrich_spot(spot: SpotItem, city: str | None = None) -> bool:
+async def _enrich_spot(spot: SpotItem, city: str | None = None) -> bool:
     """补全单个景点的地址、经纬度和 POI 信息。"""
-    place = _pick_best_place(spot.name, city=city)
+    place = await _pick_best_place(spot.name, city=city)
     if place is None and spot.location:
-        place = _pick_best_place(spot.location, city=city)
+        place = await _pick_best_place(spot.location, city=city)
 
     if place is None:
         query_address = spot.address or spot.location or spot.name
-        geocode = geocode_address(query_address, city=city)
+        geocode = await geocode_address(query_address, city=city)
         if geocode is None:
             return False
         spot.address = geocode.get("formatted_address") or spot.address
@@ -393,15 +393,15 @@ def _enrich_spot(spot: SpotItem, city: str | None = None) -> bool:
     return True
 
 
-def _enrich_hotel(hotel: HotelItem, city: str | None = None) -> bool:
+async def _enrich_hotel(hotel: HotelItem, city: str | None = None) -> bool:
     """补全单个酒店的地址和经纬度。"""
-    place = _pick_best_place(hotel.name, city=city)
+    place = await _pick_best_place(hotel.name, city=city)
     if place is None and hotel.location:
-        place = _pick_best_place(hotel.location, city=city)
+        place = await _pick_best_place(hotel.location, city=city)
 
     if place is None:
         query_address = hotel.address or hotel.location or hotel.name
-        geocode = geocode_address(query_address, city=city)
+        geocode = await geocode_address(query_address, city=city)
         if geocode is None:
             return False
         hotel.address = geocode.get("formatted_address") or hotel.address
@@ -417,12 +417,12 @@ def _enrich_hotel(hotel: HotelItem, city: str | None = None) -> bool:
     return True
 
 
-def _geocode_place_text(place_text: str | None, city: str | None = None) -> dict[str, Any] | None:
+async def _geocode_place_text(place_text: str | None, city: str | None = None) -> dict[str, Any] | None:
     """把文本地点尽量解析成带经纬度的结果。"""
     if not place_text:
         return None
 
-    place = _pick_best_place(place_text, city=city)
+    place = await _pick_best_place(place_text, city=city)
     if place is not None:
         return {
             "latitude": place.get("latitude"),
@@ -430,7 +430,7 @@ def _geocode_place_text(place_text: str | None, city: str | None = None) -> dict
             "address": place.get("address"),
         }
 
-    geocode = geocode_address(place_text, city=city)
+    geocode = await geocode_address(place_text, city=city)
     if geocode is not None:
         return {
             "latitude": geocode.get("latitude"),
@@ -440,10 +440,10 @@ def _geocode_place_text(place_text: str | None, city: str | None = None) -> dict
     return None
 
 
-def _enrich_transport(transport: TransportItem, city: str | None = None) -> bool:
+async def _enrich_transport(transport: TransportItem, city: str | None = None) -> bool:
     """补全单段交通的距离和耗时信息。"""
-    origin = _geocode_place_text(transport.from_place, city=city)
-    destination = _geocode_place_text(transport.to_place, city=city)
+    origin = await _geocode_place_text(transport.from_place, city=city)
+    destination = await _geocode_place_text(transport.to_place, city=city)
     if not origin or not destination:
         return False
 
@@ -452,7 +452,7 @@ def _enrich_transport(transport: TransportItem, city: str | None = None) -> bool
     if destination.get("latitude") is None or destination.get("longitude") is None:
         return False
 
-    route = estimate_route(
+    route = await estimate_route(
         origin_longitude=origin["longitude"],
         origin_latitude=origin["latitude"],
         destination_longitude=destination["longitude"],
@@ -468,28 +468,28 @@ def _enrich_transport(transport: TransportItem, city: str | None = None) -> bool
     return True
 
 
-def enrich_itinerary_with_map_data(itinerary: Itinerary, city: str | None = None) -> Itinerary:
+async def enrich_itinerary_with_map_data(itinerary: Itinerary, city: str | None = None) -> Itinerary:
     """使用高德服务补全 itinerary 里的地图字段。"""
     enriched_count = 0
 
     for day in itinerary.days:
         for spot in day.spots:
             try:
-                if _enrich_spot(spot, city=city or itinerary.destination):
+                if await _enrich_spot(spot, city=city or itinerary.destination):
                     enriched_count += 1
             except Exception:
                 continue
 
         if day.hotel is not None:
             try:
-                if _enrich_hotel(day.hotel, city=city or itinerary.destination):
+                if await _enrich_hotel(day.hotel, city=city or itinerary.destination):
                     enriched_count += 1
             except Exception:
                 pass
 
         for transport in day.transport:
             try:
-                if _enrich_transport(transport, city=city or itinerary.destination):
+                if await _enrich_transport(transport, city=city or itinerary.destination):
                     enriched_count += 1
             except Exception:
                 continue

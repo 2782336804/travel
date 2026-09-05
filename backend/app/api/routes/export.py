@@ -1,3 +1,4 @@
+import asyncio
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException
@@ -18,13 +19,13 @@ def _build_inline_filename_header(filename: str) -> dict[str, str]:
 
 
 @router.get("/{trip_id}/markdown", response_class=PlainTextResponse)
-def export_trip_markdown(trip_id: str) -> PlainTextResponse:
+async def export_trip_markdown(trip_id: str) -> PlainTextResponse:
     """把已保存 itinerary 导出为 Markdown 文本。"""
-    trip_detail = get_itinerary_by_trip_id(trip_id)
+    trip_detail = await get_itinerary_by_trip_id(trip_id)
     if trip_detail is None:
         raise HTTPException(status_code=404, detail="Trip not found.")
 
-    markdown = itinerary_to_markdown(trip_detail)
+    markdown = await asyncio.to_thread(itinerary_to_markdown, trip_detail)
     return PlainTextResponse(
         content=markdown,
         media_type="text/markdown; charset=utf-8",
@@ -33,14 +34,14 @@ def export_trip_markdown(trip_id: str) -> PlainTextResponse:
 
 
 @router.get("/{trip_id}/pdf", response_class=Response)
-def export_trip_pdf(trip_id: str) -> Response:
+async def export_trip_pdf(trip_id: str) -> Response:
     """把已保存 itinerary 导出为 PDF。"""
-    trip_detail = get_itinerary_by_trip_id(trip_id)
+    trip_detail = await get_itinerary_by_trip_id(trip_id)
     if trip_detail is None:
         raise HTTPException(status_code=404, detail="Trip not found.")
 
     try:
-        pdf_bytes = itinerary_to_pdf_bytes(trip_detail)
+        pdf_bytes = await asyncio.to_thread(itinerary_to_pdf_bytes, trip_detail)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

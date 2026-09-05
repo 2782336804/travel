@@ -39,17 +39,17 @@ router = APIRouter(prefix="/trip", tags=["trip"])
 
 
 @router.get("", response_model=TripListResponse)
-def list_trips() -> TripListResponse:
+async def list_trips() -> TripListResponse:
     """返回已保存行程的摘要列表。"""
-    return list_saved_itineraries()
+    return await list_saved_itineraries()
 
 
 @router.post("/generate", response_model=Itinerary)
-def generate_trip(request: TripRequest) -> Itinerary:
+async def generate_trip(request: TripRequest) -> Itinerary:
     """生成结构化 itinerary。"""
     try:
-        temporary = get_city_by_description(request.destination)
-        city_resolution = resolve_city(temporary)
+        temporary = await get_city_by_description(request.destination)
+        city_resolution = await resolve_city(temporary)
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
@@ -104,7 +104,7 @@ def generate_trip(request: TripRequest) -> Itinerary:
 
     if city_resolution.tier is CityCoverageTier.DYNAMIC:
         try:
-            candidate_pool = collect_city_candidate_pool(
+            candidate_pool = await collect_city_candidate_pool(
                 city=city_resolution.city,
                 adcode=city_resolution.adcode,
                 administrative_level=city_resolution.administrative_level,
@@ -152,7 +152,7 @@ def generate_trip(request: TripRequest) -> Itinerary:
         normalized_request = request.model_copy(
             update={"destination": city_resolution.city},
         )
-        return generate_dynamic_trip_itinerary(
+        return await generate_dynamic_trip_itinerary(
             normalized_request,
             candidate_pool,
         )
@@ -160,25 +160,25 @@ def generate_trip(request: TripRequest) -> Itinerary:
     normalized_request = request.model_copy(
         update={"destination": city_resolution.city},
     )
-    return generate_trip_itinerary(normalized_request)
+    return await generate_trip_itinerary(normalized_request)
 
 
 @router.get("/stats", response_model=TokenStatsResponse)
-def get_trip_token_stats() -> TokenStatsResponse:
+async def get_trip_token_stats() -> TokenStatsResponse:
     """返回所有已保存行程的 token 消耗统计。"""
-    return get_token_stats()
+    return await get_token_stats()
 
 
 @router.post("/edit", response_model=Itinerary)
-def edit_trip(request: TripEditRequest) -> Itinerary:
+async def edit_trip(request: TripEditRequest) -> Itinerary:
     """根据用户编辑指令返回更新后的 itinerary。"""
-    return edit_trip_itinerary(request)
+    return await edit_trip_itinerary(request)
 
 
 @router.post("/save")
-def save_trip(request: TripSaveRequest) -> dict[str, str]:
+async def save_trip(request: TripSaveRequest) -> dict[str, str]:
     """保存 itinerary，并返回 trip_id。"""
-    saved_trip_id = save_itinerary(request.itinerary)
+    saved_trip_id = await save_itinerary(request.itinerary)
     return {
         "message": "Trip itinerary saved successfully.",
         "trip_id": saved_trip_id,
@@ -186,18 +186,18 @@ def save_trip(request: TripSaveRequest) -> dict[str, str]:
 
 
 @router.get("/{trip_id}", response_model=TripDetailResponse)
-def get_trip_detail(trip_id: str) -> TripDetailResponse:
+async def get_trip_detail(trip_id: str) -> TripDetailResponse:
     """根据 trip_id 查询已保存 itinerary。"""
-    trip_detail = get_itinerary_by_trip_id(trip_id)
+    trip_detail = await get_itinerary_by_trip_id(trip_id)
     if trip_detail is None:
         raise HTTPException(status_code=404, detail="Trip not found.")
     return trip_detail
 
 
 @router.delete("/{trip_id}")
-def delete_trip(trip_id: str) -> dict[str, str]:
+async def delete_trip(trip_id: str) -> dict[str, str]:
     """根据 trip_id 删除已保存 itinerary。"""
-    deleted = delete_itinerary_by_trip_id(trip_id)
+    deleted = await delete_itinerary_by_trip_id(trip_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Trip not found.")
     return {

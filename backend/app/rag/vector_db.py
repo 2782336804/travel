@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from hashlib import md5
 
@@ -11,8 +12,8 @@ from app.config import (
     CHROMA_DB_DIR,
     EMBEDDING_BATCH_SIZE,
     EMBEDDING_MODEL,
-    LLM_API_KEY,
-    LLM_BASE_URL,
+    LLM_API_KEY_2,
+    LLM_BASE_URL_2,
 )
 from app.rag.guide_catalog import destination_for_guide
 
@@ -102,12 +103,13 @@ def _score_chunk(query: str, chunk_text: str) -> int:
     return sum(1 for keyword in keywords if keyword in chunk_text)
 
 
-def _search_guide_chunks_by_keywords(
+async def _search_guide_chunks_by_keywords(
     query: str, top_k: int = 3, destination: str | None = None
 ) -> list[dict[str, str]]:
     """回退方案：使用关键词匹配本地攻略片段。"""
+    chunks = await asyncio.to_thread(load_guide_chunks)
     scored_chunks: list[tuple[int, dict[str, str]]] = []
-    for chunk in load_guide_chunks():
+    for chunk in chunks:
         if destination and chunk.get("destination") != destination:
             continue
         score = _score_chunk(query, _build_document_text(chunk))
@@ -120,7 +122,7 @@ def _search_guide_chunks_by_keywords(
 
 def _build_embeddings():
     """创建 embedding 模型实例。"""
-    if not LLM_API_KEY:
+    if not LLM_API_KEY_2:
         return None
 
     try:
@@ -131,16 +133,16 @@ def _build_embeddings():
     try:
         return OpenAIEmbeddings(
             model=EMBEDDING_MODEL,
-            api_key=LLM_API_KEY,
-            base_url=LLM_BASE_URL or None,
+            api_key=LLM_API_KEY_2,
+            base_url=LLM_BASE_URL_2 or None,
             chunk_size=EMBEDDING_BATCH_SIZE,
             check_embedding_ctx_length=False,
         )
     except TypeError:
         return OpenAIEmbeddings(
             model=EMBEDDING_MODEL,
-            openai_api_key=LLM_API_KEY,
-            openai_api_base=LLM_BASE_URL or None,
+            openai_api_key=LLM_API_KEY_2,
+            openai_api_base=LLM_BASE_URL_2 or None,
             chunk_size=EMBEDDING_BATCH_SIZE,
             check_embedding_ctx_length=False,
         )
@@ -163,26 +165,26 @@ def _extract_embedding_token_usage(response_data: dict) -> dict[str, int]:
     }
 
 
-def _embed_query_with_usage(query: str) -> tuple[list[float] | None, dict[str, int]]:
+async def _embed_query_with_usage(query: str) -> tuple[list[float] | None, dict[str, int]]:
     """在线 query embedding：优先直接调接口拿官方 usage，失败时回退 LangChain 但 usage 为 0。"""
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
-    if not LLM_API_KEY:
+    if not LLM_API_KEY_2:
         return None, empty_usage
 
-    base_url = (LLM_BASE_URL or "https://api.openai.com/v1").rstrip("/")
+    base_url = (LLM_BASE_URL_2 or "https://api.openai.com/v1").rstrip("/")
     endpoint = f"{base_url}/embeddings"
     payload = {
         "model": EMBEDDING_MODEL,
         "input": query,
     }
     headers = {
-        "Authorization": f"Bearer {LLM_API_KEY}",
+        "Authorization": f"Bearer {LLM_API_KEY_2}",
         "Content-Type": "application/json",
     }
 
     try:
-        with httpx.Client(timeout=30) as client:
-            response = client.post(endpoint, json=payload, headers=headers)
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(endpoint, json=payload, headers=headers)
         if response.status_code == 200:
             data = response.json()
             items = data.get("data") or []
@@ -205,12 +207,12 @@ def _embed_query_with_usage(query: str) -> tuple[list[float] | None, dict[str, i
     embeddings = _build_embeddings()
     if embeddings is None:
         return None, empty_usage
-    print("[embedding] fallback to LangChain embed_query; official token usage unavailable")
-    return embeddings.embed_query(query), empty_usage
+    print("[embedding] fallback to LangChain aembed_query; official token usage unavailable")
+    return await embeddings.aembed_query(query), empty_usage
 
 
 def _get_chroma_collection():
-    """获取 Chroma collection。"""
+    """获取 Chroma collection（同步调用，由调用方放入线程池执行）。"""
     try:
         import chromadb
     except ImportError:
@@ -223,7 +225,7 @@ def _get_chroma_collection():
     )
 
 
-def ingest_guide_chunks_to_chroma() -> int:
+async def ingest_guide_chunks_to_chroma() -> int:
     """
     把本地攻略片段写入 Chroma。
 
@@ -235,7 +237,7 @@ def ingest_guide_chunks_to_chroma() -> int:
     5. 把向量、文本和 metadata 一起写入 Chroma
     """
     embeddings = _build_embeddings()
-    collection = _get_chroma_collection()
+    collection = await asyncio.to_thread(_get_chroma_collection)
     chunks = load_guide_chunks()
 
     if embeddings is None:
@@ -244,7 +246,7 @@ def ingest_guide_chunks_to_chroma() -> int:
         raise RuntimeError("当前环境缺少 chromadb，无法写入 Chroma。")
 
     documents = [_build_document_text(chunk) for chunk in chunks]
-    vectors = embeddings.embed_documents(documents)
+    vectors = await embeddings.aembed_documents(documents)
     ids = [chunk["id"] for chunk in chunks]
     metadatas = [
         {
@@ -255,7 +257,8 @@ def ingest_guide_chunks_to_chroma() -> int:
         for chunk in chunks
     ]
 
-    collection.upsert(
+    await asyncio.to_thread(
+        collection.upsert,
         ids=ids,
         documents=documents,
         metadatas=metadatas,
@@ -264,19 +267,19 @@ def ingest_guide_chunks_to_chroma() -> int:
     return len(chunks)
 
 
-def _search_guide_chunks_by_chroma(
+async def _search_guide_chunks_by_chroma(
     query: str, top_k: int = 3, destination: str | None = None
 ) -> tuple[list[dict[str, str]], dict[str, int]]:
     """优先使用 Chroma 做向量检索，并返回在线 query embedding token。"""
-    collection = _get_chroma_collection()
+    collection = await asyncio.to_thread(_get_chroma_collection)
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
 
     if collection is None:
         return [], empty_usage
-    if collection.count() == 0:
+    if await asyncio.to_thread(collection.count) == 0:
         return [], empty_usage
 
-    query_embedding, embedding_usage = _embed_query_with_usage(query)
+    query_embedding, embedding_usage = await _embed_query_with_usage(query)
     if query_embedding is None:
         return [], empty_usage
     query_args = {
@@ -286,7 +289,7 @@ def _search_guide_chunks_by_chroma(
     }
     if destination:
         query_args["where"] = {"destination": destination}
-    result = collection.query(**query_args)
+    result = await asyncio.to_thread(collection.query, **query_args)
 
     documents = result.get("documents", [[]])[0]
     metadatas = result.get("metadatas", [[]])[0]
@@ -309,7 +312,7 @@ def _search_guide_chunks_by_chroma(
     return matched_chunks, embedding_usage
 
 
-def search_guide_chunks_with_usage(
+async def search_guide_chunks_with_usage(
     query: str, top_k: int = 3, destination: str | None = None
 ) -> tuple[list[dict[str, str]], dict[str, int]]:
     """
@@ -318,21 +321,21 @@ def search_guide_chunks_with_usage(
     优先走 Chroma 向量检索；如果当前环境还没准备好，再回退到关键词检索。
     """
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
-    chroma_results, embedding_usage = _search_guide_chunks_by_chroma(
+    chroma_results, embedding_usage = await _search_guide_chunks_by_chroma(
         query=query, top_k=top_k, destination=destination
     )
     if chroma_results:
         return chroma_results, embedding_usage
-    return _search_guide_chunks_by_keywords(
+    return await _search_guide_chunks_by_keywords(
         query=query, top_k=top_k, destination=destination
     ), empty_usage
 
 
-def search_guide_chunks(
+async def search_guide_chunks(
     query: str, top_k: int = 3, destination: str | None = None
 ) -> list[dict[str, str]]:
     """兼容旧调用：只返回检索片段，不返回 token usage。"""
-    chunks, _ = search_guide_chunks_with_usage(
+    chunks, _ = await search_guide_chunks_with_usage(
         query=query, top_k=top_k, destination=destination
     )
     return chunks

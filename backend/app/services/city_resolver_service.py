@@ -46,7 +46,7 @@ class CityResolutionResult:
 DIRECT_ADMINISTERED_MUNICIPALITIES = {"北京", "上海", "天津", "重庆"}
 
 
-def resolve_city(destination: str) -> CityResolutionResult:
+async def resolve_city(destination: str) -> CityResolutionResult:
     """解析目的地；外部地图异常会继续抛出，由 API 层区分为服务故障。"""
     requested_city = normalize_city_name(destination)
     registry_result = lookup_city(requested_city)
@@ -61,7 +61,7 @@ def resolve_city(destination: str) -> CityResolutionResult:
         )
 
     try:
-        administrative_area = resolve_administrative_area(requested_city)
+        administrative_area = await resolve_administrative_area(requested_city)
     except AmapServiceError as exc:
         logger.warning(
             "city resolution failed: destination=%s reason=%s message=%s",

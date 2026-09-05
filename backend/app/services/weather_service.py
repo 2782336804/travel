@@ -24,12 +24,12 @@ def _ensure_amap_api_key() -> None:
         raise RuntimeError("当前环境未配置 AMAP_API_KEY，无法调用天气服务。")
 
 
-def _build_client() -> httpx.Client:
-    """创建访问高德天气 API 的客户端。"""
-    return httpx.Client(timeout=AMAP_TIMEOUT_SECONDS)
+def _build_client() -> httpx.AsyncClient:
+    """创建访问高德天气 API 的异步客户端。"""
+    return httpx.AsyncClient(timeout=AMAP_TIMEOUT_SECONDS)
 
 
-def _request_amap_weather(path: str, params: dict[str, Any]) -> dict[str, Any]:
+async def _request_amap_weather(path: str, params: dict[str, Any]) -> dict[str, Any]:
     """调用高德天气接口并返回 JSON 结果。"""
     _ensure_amap_api_key()
 
@@ -38,8 +38,8 @@ def _request_amap_weather(path: str, params: dict[str, Any]) -> dict[str, Any]:
         **params,
     }
 
-    with _build_client() as client:
-        response = client.get(f"{AMAP_BASE_URL}{path}", params=request_params)
+    async with _build_client() as client:
+        response = await client.get(f"{AMAP_BASE_URL}{path}", params=request_params)
         response.raise_for_status()
         payload = response.json()
 
@@ -57,19 +57,19 @@ def _normalize_cache_text(value: str | None) -> str:
     return value.strip().lower()
 
 
-def get_weather_forecast(city: str) -> dict[str, Any]:
+async def get_weather_forecast(city: str) -> dict[str, Any]:
     """获取指定城市的未来天气预报。"""
     cache_key = f"weather:forecast:{_normalize_cache_text(city)}"
-    cached_value = get_cached_json(cache_key)
+    cached_value = await get_cached_json(cache_key)
     if cached_value is not None:
         logger.info("weather cache hit: city=%s", city)
         return cached_value
     logger.info("weather cache miss: city=%s", city)
 
-    geocode = geocode_address(city, city=city)
+    geocode = await geocode_address(city, city=city)
     city_code = geocode.get("adcode") if geocode is not None else city
 
-    payload = _request_amap_weather(
+    payload = await _request_amap_weather(
         "/weather/weatherInfo",
         {
             "city": city_code or city,
@@ -105,5 +105,5 @@ def get_weather_forecast(city: str) -> dict[str, Any]:
         "report_time": first.get("reporttime"),
         "days": days,
     }
-    set_cached_json(cache_key, result, expire_seconds=REDIS_WEATHER_TTL_SECONDS)
+    await set_cached_json(cache_key, result, expire_seconds=REDIS_WEATHER_TTL_SECONDS)
     return result

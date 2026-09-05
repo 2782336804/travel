@@ -136,7 +136,7 @@ def _extract_json_object(raw_text: str) -> str | None:
     return text[start_index : end_index + 1]
 
 
-def collect_trip_context(
+async def collect_trip_context(
     destination: str,
     preferences: list[str] | None = None,
     pace: str | None = None,
@@ -144,7 +144,7 @@ def collect_trip_context(
     top_k: int = 5,
 ) -> tuple[list[str], dict[str, int], dict[str, int], dict[str, int]]:
     """收集本地攻略片段。返回 (contexts, rewrite_usage, rerank_usage, embedding_usage)。"""
-    return get_destination_guide_context(
+    return await get_destination_guide_context(
         destination=destination,
         preferences=preferences,
         pace=pace,
@@ -184,7 +184,7 @@ def _extract_token_usage(response) -> dict[str, int]:
     return usage
 
 
-def generate_planner_draft(
+async def generate_planner_draft(
     request: TripRequest,
     rag_contexts: list[str],
     day_count: int,
@@ -279,7 +279,7 @@ JSON 结构示例：
     print(f"[trip_planner_agent] max_retries = {LLM_MAX_RETRIES}")
 
     try:
-        response = llm.invoke(
+        response = await llm.ainvoke(
             [
                 ("system", system_prompt),
                 ("human", human_prompt),
@@ -336,7 +336,7 @@ def _dynamic_candidate_payload(candidates: list[PlaceCandidate]) -> list[dict[st
     ]
 
 
-def generate_dynamic_planner_draft(
+async def generate_dynamic_planner_draft(
     request: TripRequest,
     candidate_pool: CityCandidatePool,
     day_count: int,
@@ -403,7 +403,7 @@ def generate_dynamic_planner_draft(
 
     print("[trip_planner_agent] 准备调用动态城市 Planner...")
     try:
-        response = llm.invoke(
+        response = await llm.ainvoke(
             [
                 ("system", system_prompt),
                 ("human", human_prompt),
@@ -450,7 +450,7 @@ def generate_dynamic_planner_draft(
     return result, token_usage
 
 
-def generate_day_edit_draft(
+async def generate_day_edit_draft(
     request: TripEditRequest,
     target_day: DayPlan,
 ) -> tuple[DayEditDraft | None, dict[str, int]]:
@@ -517,7 +517,7 @@ JSON 结构示例：
     print(f"[trip_planner_agent] base_url = {LLM_BASE_URL or '<DEFAULT>'}")
 
     try:
-        response = llm.invoke(
+        response = await llm.ainvoke(
             [
                 ("system", system_prompt),
                 ("human", human_prompt),

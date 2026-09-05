@@ -5,6 +5,8 @@ from app.config import (
     LLM_MODEL,
     LLM_TIMEOUT_SECONDS,
 )
+
+
 def _build_chat_llm():
     """创建通用 ChatOpenAI 实例。"""
     if not LLM_API_KEY:
@@ -25,8 +27,7 @@ def _build_chat_llm():
     )
 
 
-
-def get_city_by_description(user_query: str) -> str:
+async def get_city_by_description(user_query: str) -> str:
     prompt = f"""
 你是城市提取器。
 根据用户描述判断对应的唯一城市。
@@ -40,7 +41,8 @@ def get_city_by_description(user_query: str) -> str:
     llm = _build_chat_llm()
     if llm is None:
         return user_query
-    res = llm.invoke([{"role":"user","content": prompt}]).content
+    response = await llm.ainvoke([{"role": "user", "content": prompt}])
+    res = response.content
     # 判断模型返回标记，未知就返回原字符串
     if res == "@@UNKNOWN@@":
         return user_query

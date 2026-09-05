@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -40,12 +41,12 @@ def _count_keyword_hits(text: str, keywords: list[str]) -> int:
     return sum(1 for keyword in keywords if keyword in text)
 
 
-def _evaluate_case(case: dict[str, Any], known_destinations: set[str]) -> dict[str, Any]:
+async def _evaluate_case(case: dict[str, Any], known_destinations: set[str]) -> dict[str, Any]:
     top_k = int(case.get("top_k", 5))
     destination = str(case["destination"])
     if destination not in known_destinations:
         raise ValueError(f"Unknown evaluation destination: {destination}")
-    query, _ = build_destination_query(
+    query, _ = await build_destination_query(
         destination=destination,
         preferences=list(case.get("preferences", [])),
         pace=case.get("pace"),
@@ -53,7 +54,7 @@ def _evaluate_case(case: dict[str, Any], known_destinations: set[str]) -> dict[s
     )
 
     start_time = time.perf_counter()
-    chunks, rerank_usage, embedding_usage = retrieve_travel_guide_chunks(
+    chunks, rerank_usage, embedding_usage = await retrieve_travel_guide_chunks(
         query=query, top_k=top_k, destination=destination
     )
     latency_ms = round((time.perf_counter() - start_time) * 1000, 1)
@@ -143,11 +144,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> int:
+async def main() -> int:
     args = build_parser().parse_args()
     cases = _load_cases(args.cases)
     known_destinations = _collect_case_destinations(cases)
-    results = [_evaluate_case(case, known_destinations) for case in cases]
+    results = [await _evaluate_case(case, known_destinations) for case in cases]
 
     for result in results:
         _print_case_result(result)
@@ -188,4 +189,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(asyncio.run(main()))

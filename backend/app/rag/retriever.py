@@ -5,7 +5,7 @@ import re
 
 import httpx
 
-from app.config import LLM_API_KEY, REDIS_RAG_TTL_SECONDS, REDIS_RERANK_TTL_SECONDS, RERANK_MODEL
+from app.config import LLM_API_KEY_2, REDIS_RAG_TTL_SECONDS, REDIS_RERANK_TTL_SECONDS, RERANK_MODEL
 from app.rag.vector_db import search_guide_chunks_with_usage
 from app.services.cache_service import get_cached_json, set_cached_json
 
@@ -131,14 +131,14 @@ def _extract_rerank_token_usage(response_data: dict) -> tuple[dict[str, int], bo
     }, False
 
 
-def _rerank_with_dashscope(
+async def _rerank_with_dashscope(
     query: str,
     chunks: list[dict[str, str]],
     top_k: int,
 ) -> tuple[list[tuple[float, int]] | None, dict[str, int]]:
     """调用 DashScope qwen3-rerank 模型做语义重排序。返回 (scored, token_usage)。"""
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
-    if not LLM_API_KEY or not chunks:
+    if not LLM_API_KEY_2 or not chunks:
         print("[rerank] skip qwen3-rerank: missing LLM_API_KEY or empty chunks")
         return None, empty_usage
 
@@ -177,12 +177,12 @@ def _rerank_with_dashscope(
             f"[rerank] calling qwen3-rerank: query={query}, "
             f"candidate_count={len(clean_chunks)}, top_k={top_k}"
         )
-        with httpx.Client(timeout=30) as client:
-            response = client.post(
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
                 DASHSCOPE_RERANK_URL,
                 json=payload,
                 headers={
-                    "Authorization": f"Bearer {LLM_API_KEY}",
+                    "Authorization": f"Bearer {LLM_API_KEY_2}",
                     "Content-Type": "application/json",
                 },
             )
@@ -265,7 +265,7 @@ chunks_hash = hashlib.md5("大理攻略.md:苍山|大理攻略.md:洱海".encode
     return f"rerank:{normalized_query}:{chunks_hash}"
 
 
-def rerank_guide_chunks(
+async def rerank_guide_chunks(
     query: str,
     matched_chunks: list[dict[str, str]],
     top_k: int,
@@ -276,7 +276,7 @@ def rerank_guide_chunks(
 
     # 尝试从缓存读取 rerank 结果
     cache_key = _build_rerank_cache_key(query, matched_chunks)
-    cached = get_cached_json(cache_key)
+    cached = await get_cached_json(cache_key)
     if cached is not None:
         logger.info("rerank cache hit: query=%s", query)
         reranked: list[dict[str, str]] = []
@@ -291,7 +291,7 @@ def rerank_guide_chunks(
     logger.info("rerank cache miss: query=%s", query)
 
     # 优先尝试 DashScope Cross-encoder Rerank
-    dashscope_results, rerank_token_usage = _rerank_with_dashscope(query, matched_chunks, top_k)
+    dashscope_results, rerank_token_usage = await _rerank_with_dashscope(query, matched_chunks, top_k)
     if dashscope_results:
         print("[rerank] using qwen3-rerank results")
         # 写入缓存：只存索引和分数，不重复存文本
@@ -299,7 +299,7 @@ def rerank_guide_chunks(
             {"i": idx, "s": round(score, 4)}
             for score, idx in dashscope_results
         ]
-        set_cached_json(cache_key, cache_value, expire_seconds=REDIS_RERANK_TTL_SECONDS)
+        await set_cached_json(cache_key, cache_value, expire_seconds=REDIS_RERANK_TTL_SECONDS)
 
         reranked = []
         for score, original_index in dashscope_results:
@@ -324,7 +324,7 @@ def rerank_guide_chunks(
     return [chunk for _, _, chunk in scored_chunks[:top_k]], empty_usage
 
 
-def retrieve_travel_guide_chunks(
+async def retrieve_travel_guide_chunks(
     query: str, top_k: int = 3, destination: str | None = None
 ) -> tuple[list[dict[str, str]], dict[str, int], dict[str, int]]:
     """返回带轻量 rerank 的原始攻略片段。返回 (chunks, rerank_usage, embedding_usage)。"""
@@ -332,27 +332,27 @@ def retrieve_travel_guide_chunks(
     search_kwargs = {"query": query, "top_k": candidate_k}
     if destination:
         search_kwargs["destination"] = destination
-    matched_chunks, embedding_usage = search_guide_chunks_with_usage(**search_kwargs)
-    reranked_chunks, rerank_usage = rerank_guide_chunks(
+    matched_chunks, embedding_usage = await search_guide_chunks_with_usage(**search_kwargs)
+    reranked_chunks, rerank_usage = await rerank_guide_chunks(
         query=query, matched_chunks=matched_chunks, top_k=top_k, destination=destination
     )
     return reranked_chunks, rerank_usage, embedding_usage
 
 
-def retrieve_travel_guide(
+async def retrieve_travel_guide(
     query: str, top_k: int = 3, destination: str | None = None
 ) -> tuple[list[str], dict[str, int], dict[str, int]]:
     """返回最相关的攻略片段。返回 (texts, rerank_usage, embedding_usage)。"""
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
     cache_destination = destination or "all"
     cache_key = f"rag:guide:{cache_destination}:{_normalize_cache_text(query)}:{top_k}"
-    cached_value = get_cached_json(cache_key)
+    cached_value = await get_cached_json(cache_key)
     if cached_value is not None:
         logger.info("rag cache hit: query=%s top_k=%s", query, top_k)
         return [str(item) for item in cached_value], empty_usage, empty_usage
     logger.info("rag cache miss: query=%s top_k=%s", query, top_k)
 
-    matched_chunks, rerank_usage, embedding_usage = retrieve_travel_guide_chunks(
+    matched_chunks, rerank_usage, embedding_usage = await retrieve_travel_guide_chunks(
         query=query, top_k=top_k, destination=destination
     )
 
@@ -362,5 +362,5 @@ def retrieve_travel_guide(
             f"[来源: {chunk['source']} | 标题: {chunk['title']}]\n{chunk['text']}"
         )
 
-    set_cached_json(cache_key, results, expire_seconds=REDIS_RAG_TTL_SECONDS)
+    await set_cached_json(cache_key, results, expire_seconds=REDIS_RAG_TTL_SECONDS)
     return results, rerank_usage, embedding_usage

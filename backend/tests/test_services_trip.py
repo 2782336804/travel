@@ -37,11 +37,14 @@ def build_trip_request() -> TripRequest:
     )
 
 
-def test_generate_trip_itinerary_returns_itinerary_object() -> None:
+EMPTY_USAGE = {"prompt_tokens": 0, "completion_tokens": 0}
+
+
+async def test_generate_trip_itinerary_returns_itinerary_object() -> None:
     """测试 service 能返回一个结构完整的 itinerary。"""
     request = build_trip_request()
 
-    itinerary = generate_trip_itinerary(request)
+    itinerary = await generate_trip_itinerary(request)
 
     assert itinerary.destination == "大理"
     assert itinerary.trip_id.startswith("trip_")
@@ -50,11 +53,11 @@ def test_generate_trip_itinerary_returns_itinerary_object() -> None:
     assert itinerary.budget_breakdown.total >= 0
 
 
-def test_generate_trip_itinerary_builds_day_plans_by_date_range() -> None:
+async def test_generate_trip_itinerary_builds_day_plans_by_date_range() -> None:
     """测试 service 会根据日期范围生成对应天数的 DayPlan。"""
     request = build_trip_request()
 
-    itinerary = generate_trip_itinerary(request)
+    itinerary = await generate_trip_itinerary(request)
 
     assert len(itinerary.days) == 3
     assert itinerary.days[0].day_index == 1
@@ -62,7 +65,7 @@ def test_generate_trip_itinerary_builds_day_plans_by_date_range() -> None:
     assert itinerary.days[2].day_index == 3
 
 
-def test_generate_trip_itinerary_does_not_invent_fallback_entities(monkeypatch) -> None:
+async def test_generate_trip_itinerary_does_not_invent_fallback_entities(monkeypatch) -> None:
     """模型不可用且候选不足时，只展示 RAG 中的真实名称，不生成模板实体。"""
     contexts = [
         "[来源: dali_guide.md | 标题: 2.1 大理古城-南门楼]\n"
@@ -74,19 +77,17 @@ def test_generate_trip_itinerary_does_not_invent_fallback_entities(monkeypatch) 
         "* **【大理邻步客栈】**：交通便利。酒店预算：**180元/晚**。",
     ]
 
-    monkeypatch.setattr(
-        trip_service,
-        "collect_trip_context",
-        lambda **_: (contexts, {"prompt_tokens": 0, "completion_tokens": 0}, {"prompt_tokens": 0, "completion_tokens": 0}, {"prompt_tokens": 0, "completion_tokens": 0}),
-    )
-    monkeypatch.setattr(
-        trip_service,
-        "generate_planner_draft",
-        lambda *_: (None, {"prompt_tokens": 0, "completion_tokens": 0}),
-    )
+    async def fake_collect_trip_context(**_):
+        return (contexts, EMPTY_USAGE, EMPTY_USAGE, EMPTY_USAGE)
+
+    async def fake_generate_planner_draft(*_):
+        return None, EMPTY_USAGE
+
+    monkeypatch.setattr(trip_service, "collect_trip_context", fake_collect_trip_context)
+    monkeypatch.setattr(trip_service, "generate_planner_draft", fake_generate_planner_draft)
     monkeypatch.setattr(trip_service, "ENABLE_AMAP_ENRICHMENT", False)
 
-    itinerary = generate_trip_itinerary(build_trip_request())
+    itinerary = await generate_trip_itinerary(build_trip_request())
     serialized = itinerary.model_dump_json()
 
     assert itinerary.days[0].spots[0].name == "大理古城-南门楼"
@@ -101,11 +102,11 @@ def test_generate_trip_itinerary_does_not_invent_fallback_entities(monkeypatch) 
     assert "舒适型住宿" not in serialized
 
 
-def test_generate_trip_itinerary_keeps_request_preferences_in_summary() -> None:
+async def test_generate_trip_itinerary_keeps_request_preferences_in_summary() -> None:
     """测试用户偏好会被写入返回摘要中。"""
     request = build_trip_request()
 
-    itinerary = generate_trip_itinerary(request)
+    itinerary = await generate_trip_itinerary(request)
 
     assert "自然风景" in itinerary.summary
     assert "拍照" in itinerary.summary
@@ -117,10 +118,14 @@ def test_generate_trip_itinerary_keeps_request_preferences_in_summary() -> None:
     edit_scope="day_2" 是否真的改到第二天
     用户指令是否真的影响结果
 '''
-def test_edit_trip_itinerary_updates_target_day_theme(monkeypatch) -> None:
+async def test_edit_trip_itinerary_updates_target_day_theme(monkeypatch) -> None:
     """测试编辑逻辑可以修改指定天数的主题与备注。"""
-    monkeypatch.setattr(trip_service, "generate_day_edit_draft", lambda request, target_day: (None, {"prompt_tokens": 0, "completion_tokens": 0}))
-    original_itinerary = generate_trip_itinerary(build_trip_request())
+
+    async def fake_generate_day_edit_draft(request, target_day):
+        return None, EMPTY_USAGE
+
+    monkeypatch.setattr(trip_service, "generate_day_edit_draft", fake_generate_day_edit_draft)
+    original_itinerary = await generate_trip_itinerary(build_trip_request())
 
     edit_request = TripEditRequest(
         trip_id=original_itinerary.trip_id,
@@ -130,16 +135,20 @@ def test_edit_trip_itinerary_updates_target_day_theme(monkeypatch) -> None:
         preserve_constraints=["保留预算结构"],
     )
 
-    updated_itinerary = edit_trip_itinerary(edit_request)
+    updated_itinerary = await edit_trip_itinerary(edit_request)
 
     assert updated_itinerary.days[1].theme.endswith("（已调整为更轻松）")
     assert "已根据用户要求把节奏调整得更轻松。" in updated_itinerary.days[1].notes
 
 
-def test_edit_trip_itinerary_can_remove_spots_for_free_time(monkeypatch) -> None:
+async def test_edit_trip_itinerary_can_remove_spots_for_free_time(monkeypatch) -> None:
     """明确取消景点时应留空，不创建可被地图误识别的占位地点。"""
-    monkeypatch.setattr(trip_service, "generate_day_edit_draft", lambda request, target_day: (None, {"prompt_tokens": 0, "completion_tokens": 0}))
-    original_itinerary = generate_trip_itinerary(build_trip_request())
+
+    async def fake_generate_day_edit_draft(request, target_day):
+        return None, EMPTY_USAGE
+
+    monkeypatch.setattr(trip_service, "generate_day_edit_draft", fake_generate_day_edit_draft)
+    original_itinerary = await generate_trip_itinerary(build_trip_request())
 
     edit_request = TripEditRequest(
         trip_id=original_itinerary.trip_id,
@@ -149,14 +158,14 @@ def test_edit_trip_itinerary_can_remove_spots_for_free_time(monkeypatch) -> None
         preserve_constraints=[],
     )
 
-    updated_itinerary = edit_trip_itinerary(edit_request)
+    updated_itinerary = await edit_trip_itinerary(edit_request)
 
     assert updated_itinerary.days[1].spots == []
     assert updated_itinerary.days[1].transport == []
     assert "已根据你的要求取消固定景点，保留自由活动时间。" in updated_itinerary.days[1].notes
 
 
-def test_edit_trip_itinerary_can_apply_llm_day_edit(monkeypatch) -> None:
+async def test_edit_trip_itinerary_can_apply_llm_day_edit(monkeypatch) -> None:
     """测试当 LLM 编辑草稿可用时，会优先重写目标日安排。"""
 
     class FakeDayEditDraft:
@@ -167,12 +176,15 @@ def test_edit_trip_itinerary_can_apply_llm_day_edit(monkeypatch) -> None:
         meal_notes = "少辣，轻松休息。"
         daily_note = "下午再出发，去双廊慢慢看日落。"
 
+    async def fake_generate_day_edit_draft(request, target_day):
+        return FakeDayEditDraft(), {"prompt_tokens": 80, "completion_tokens": 30}
+
     monkeypatch.setattr(
         trip_service,
         "generate_day_edit_draft",
-        lambda request, target_day: (FakeDayEditDraft(), {"prompt_tokens": 80, "completion_tokens": 30}),
+        fake_generate_day_edit_draft,
     )
-    original_itinerary = generate_trip_itinerary(build_trip_request())
+    original_itinerary = await generate_trip_itinerary(build_trip_request())
 
     edit_request = TripEditRequest(
         trip_id=original_itinerary.trip_id,
@@ -182,16 +194,16 @@ def test_edit_trip_itinerary_can_apply_llm_day_edit(monkeypatch) -> None:
         preserve_constraints=["保留预算结构"],
     )
 
-    updated_itinerary = edit_trip_itinerary(edit_request)
+    updated_itinerary = await edit_trip_itinerary(edit_request)
 
     assert updated_itinerary.days[1].theme == "更轻松的洱海慢游"
     assert updated_itinerary.days[1].spots[0].name == "双廊古镇"
     assert updated_itinerary.days[1].meals[0].name == "海景下午茶"
     assert updated_itinerary.days[1].notes[-1] == "下午再出发，去双廊慢慢看日落。"
 
-def test_generate_trip_itinerary_includes_local_guide_context() -> None:
+async def test_generate_trip_itinerary_includes_local_guide_context() -> None:
     """测试生成结果已经开始包含本地攻略检索信息。"""
-    itinerary = generate_trip_itinerary(build_trip_request())
+    itinerary = await generate_trip_itinerary(build_trip_request())
 
     joined_notes = "\n".join(itinerary.source_notes)
     joined_spots = "\n".join(day.spots[0].name for day in itinerary.days if day.spots)
