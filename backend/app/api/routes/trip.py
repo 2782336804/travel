@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
+import re
+
 from app.agents.tools.model_tool import get_city_by_description
 
 from app.models.schemas import (
@@ -11,8 +13,13 @@ from app.models.schemas import (
     TripRequest,
     TripSaveRequest,
 )
-from app.services.city_registry_service import CityCoverageTier
+from app.services.city_registry_service import (
+    CityCoverageTier,
+    lookup_city,
+    normalize_city_name,
+)
 from app.services.city_resolver_service import (
+    DIRECT_ADMINISTERED_MUNICIPALITIES,
     CityResolutionUnavailableError,
     resolve_city,
 )
@@ -38,6 +45,46 @@ from app.services.trip_service import (
 router = APIRouter(prefix="/trip", tags=["trip"])
 
 
+def _destination_needs_llm_extraction(destination: str) -> str | None:
+    """规则优先识别明确城市，返回可直接使用的城市名；无法确定时返回 None。
+
+    命中已沉淀城市（含别名）、带“市”后缀的明确输入、直辖市时跳过 LLM，
+    省掉一次串行的大模型调用；模糊描述（如“魔都”“以大熊猫出名的城市”）
+    仍交由 get_city_by_description 提取。
+    """
+    normalized = "".join(destination.split())
+    if not normalized:
+        return None
+
+    registry_result = lookup_city(normalized)
+    if registry_result.tier is CityCoverageTier.CURATED:
+        return registry_result.city
+
+    if normalized.endswith("市"):
+        # 仅当“市”前为 2-4 字（真实城市名长度，如“西宁市”“呼和浩特市”）
+        # 才视为明确城市；更长或非城市短语（如“不存在的旅游城市”）交由 LLM。
+        stem = normalized[:-1]
+        if 2 <= len(stem) <= 4:
+            return normalize_city_name(normalized)
+
+    if normalized in DIRECT_ADMINISTERED_MUNICIPALITIES:
+        return normalized
+
+    return None
+
+
+def _looks_like_city_name(candidate: str) -> bool:
+    """LLM 提取结果应是一个纯中文城市名。
+
+    带特殊标记（如 @@UNKNOWN@@）、含非中文字符、长度异常的都视为不规范，
+    交由上层直接报错，不再拿原输入继续解析。
+    """
+    normalized = "".join(candidate.split())
+    if not normalized:
+        return False
+    return bool(re.fullmatch(r"[\u4e00-\u9fff]{2,10}", normalized))
+
+
 @router.get("", response_model=TripListResponse)
 async def list_trips() -> TripListResponse:
     """返回已保存行程的摘要列表。"""
@@ -48,7 +95,25 @@ async def list_trips() -> TripListResponse:
 async def generate_trip(request: TripRequest) -> Itinerary:
     """生成结构化 itinerary。"""
     try:
-        temporary = await get_city_by_description(request.destination)
+        rule_city = _destination_needs_llm_extraction(request.destination)
+        if rule_city is not None:
+            temporary = rule_city
+            city_extract_usage = {"prompt_tokens": 0, "completion_tokens": 0}
+        else:
+            temporary, city_extract_usage = await get_city_by_description(
+                request.destination
+            )
+            if not _looks_like_city_name(temporary):
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "invalid_destination",
+                        "message": (
+                            f"无法将“{request.destination}”识别为可规划的旅游城市，"
+                            "请检查后重试。"
+                        ),
+                    },
+                )
         city_resolution = await resolve_city(temporary)
     except ValueError as exc:
         raise HTTPException(
@@ -155,12 +220,16 @@ async def generate_trip(request: TripRequest) -> Itinerary:
         return await generate_dynamic_trip_itinerary(
             normalized_request,
             candidate_pool,
+            city_extract_usage=city_extract_usage,
         )
 
     normalized_request = request.model_copy(
         update={"destination": city_resolution.city},
     )
-    return await generate_trip_itinerary(normalized_request)
+    return await generate_trip_itinerary(
+        normalized_request,
+        city_extract_usage=city_extract_usage,
+    )
 
 
 @router.get("/stats", response_model=TokenStatsResponse)

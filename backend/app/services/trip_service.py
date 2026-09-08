@@ -281,6 +281,7 @@ def _candidate_map(
 async def generate_dynamic_trip_itinerary(
     request: TripRequest,
     candidate_pool: CityCandidatePool,
+    city_extract_usage: dict[str, int] | None = None,
 ) -> Itinerary:
     """使用地图候选生成动态城市行程，所有展示实体都由 POI ID 回填。"""
     day_count = max((request.end_date - request.start_date).days + 1, 1)
@@ -493,6 +494,16 @@ async def generate_dynamic_trip_itinerary(
         tips=tips,
         source_notes=source_notes,
         token_usage=TokenUsage(
+            city_extract_prompt_tokens=(
+                city_extract_usage.get("prompt_tokens", 0)
+                if city_extract_usage
+                else 0
+            ),
+            city_extract_completion_tokens=(
+                city_extract_usage.get("completion_tokens", 0)
+                if city_extract_usage
+                else 0
+            ),
             planner_prompt_tokens=planner_usage.get("prompt_tokens", 0),
             planner_completion_tokens=planner_usage.get("completion_tokens", 0),
         ),
@@ -500,7 +511,10 @@ async def generate_dynamic_trip_itinerary(
     return _refresh_budget_breakdown(itinerary, request_budget=request.budget)
 
 
-async def generate_trip_itinerary(request: TripRequest) -> Itinerary:
+async def generate_trip_itinerary(
+    request: TripRequest,
+    city_extract_usage: dict[str, int] | None = None,
+) -> Itinerary:
     """生成完整 itinerary，并使用更真实的预算估算方式。"""
     day_count = (request.end_date - request.start_date).days + 1
     day_count = max(day_count, 1)
@@ -514,6 +528,14 @@ async def generate_trip_itinerary(request: TripRequest) -> Itinerary:
     llm_draft, planner_usage = await generate_planner_draft(request, rag_contexts, day_count)
 
     token_usage = TokenUsage(
+        city_extract_prompt_tokens=(
+            city_extract_usage.get("prompt_tokens", 0) if city_extract_usage else 0
+        ),
+        city_extract_completion_tokens=(
+            city_extract_usage.get("completion_tokens", 0)
+            if city_extract_usage
+            else 0
+        ),
         rewrite_prompt_tokens=rewrite_usage.get("prompt_tokens", 0),
         rewrite_completion_tokens=rewrite_usage.get("completion_tokens", 0),
         embedding_prompt_tokens=embedding_usage.get("prompt_tokens", 0),
@@ -522,6 +544,11 @@ async def generate_trip_itinerary(request: TripRequest) -> Itinerary:
         planner_completion_tokens=planner_usage.get("completion_tokens", 0),
         rerank_prompt_tokens=rerank_usage.get("prompt_tokens", 0),
         rerank_completion_tokens=rerank_usage.get("completion_tokens", 0),
+    )
+    print(
+        "[token_usage] City Extract: "
+        f"prompt={token_usage.city_extract_prompt_tokens}, "
+        f"completion={token_usage.city_extract_completion_tokens}"
     )
     print(
         "[token_usage] Query Rewrite: "

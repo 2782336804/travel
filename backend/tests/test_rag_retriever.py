@@ -21,7 +21,7 @@ async def test_retrieve_travel_guide_formats_chunks_as_text(monkeypatch) -> None
         query: str, top_k: int = 3
     ) -> tuple[list[dict[str, str]], dict[str, int]]:
         assert query == "大理 古城 美食"
-        assert top_k == 8
+        assert top_k == 6
         return [
             {
                 "source": "dali_guide.md",
@@ -72,3 +72,21 @@ async def async_fake_get_cached(_key):
 
 async def async_fake_set_cached(*_args, **_kwargs):
     return None
+
+
+def test_defer_accommodation_budget_chunks_moves_budget_blocks_to_end() -> None:
+    """住宿预算信息块应整体后置，不抢占景点型查询的 Top1，但保留在结果内。"""
+    chunks = [
+        {"source": "sanya_guide.md", "title": "2.2 亚龙湾", "text": "沙滩"},
+        {"source": "sanya_guide.md", "title": "经济型（200 元/晚以下）", "text": "酒店预算"},
+        {"source": "sanya_guide.md", "title": "5. 经典三日行程参考", "text": "行程"},
+        {"source": "sanya_guide.md", "title": "高端型（500 元/晚以上）", "text": "酒店预算"},
+    ]
+    ordered = retriever._defer_accommodation_budget_chunks(chunks)
+    titles = [chunk["title"] for chunk in ordered]
+
+    assert titles[0] == "2.2 亚龙湾"
+    assert titles[1] == "5. 经典三日行程参考"
+    assert titles[-2:] == ["经济型（200 元/晚以下）", "高端型（500 元/晚以上）"]
+    # 非预算块的相对顺序保持不变
+    assert [c["title"] for c in ordered[:2]] == ["2.2 亚龙湾", "5. 经典三日行程参考"]

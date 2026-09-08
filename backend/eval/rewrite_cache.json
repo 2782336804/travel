@@ -1,0 +1,149 @@
+{
+ "dali_sunset_easy_photo": {
+  "query": "大理 洱海 看日落 自然风景 拍照 美食 轻松 观景点",
+  "usage": {
+   "prompt_tokens": 192,
+   "completion_tokens": 526
+  }
+ },
+ "dali_culture_slow_trip": {
+  "query": "大理 白族文化 古镇 慢节奏 轻松 文化体验 大理古城 喜洲古镇 扎染 三道茶 白族民居",
+  "usage": {
+   "prompt_tokens": 191,
+   "completion_tokens": 1154
+  }
+ },
+ "dali_food_budget": {
+  "query": "大理 当地特色美食 小吃 人均消费 预算",
+  "usage": {
+   "prompt_tokens": 187,
+   "completion_tokens": 459
+  }
+ },
+ "chengdu_relax_food": {
+  "query": "成都 美食 休闲 文化 慢生活 轻松 适合父母",
+  "usage": {
+   "prompt_tokens": 194,
+   "completion_tokens": 37
+  }
+ },
+ "chengdu_food_deep": {
+  "query": "成都 特色美食 小吃 火锅 必吃 老字号 街边美食 人气餐厅",
+  "usage": {
+   "prompt_tokens": 189,
+   "completion_tokens": 100
+  }
+ },
+ "chengdu_park_old_town_nature": {
+  "query": "成都 城市公园 古镇 自然风景 休闲慢游",
+  "usage": {
+   "prompt_tokens": 195,
+   "completion_tokens": 824
+  }
+ },
+ "xian_history_culture": {
+  "query": "西安 历史 文化 古迹 古都 深度游",
+  "usage": {
+   "prompt_tokens": 190,
+   "completion_tokens": 19
+  }
+ },
+ "xian_food_night": {
+  "query": "西安 美食 小吃 夜市 回民街 本地餐馆 特色小吃 肉夹馍 羊肉泡馍 凉皮",
+  "usage": {
+   "prompt_tokens": 187,
+   "completion_tokens": 515
+  }
+ },
+ "xian_family_study": {
+  "query": "西安 亲子研学 文化体验 陕西历史博物馆 秦始皇兵马俑 碑林 大雁塔 儿童友好 轻松行程 教育意义 慢节奏",
+  "usage": {
+   "prompt_tokens": 189,
+   "completion_tokens": 221
+  }
+ },
+ "xiamen_couple_relax": {
+  "query": "厦门 鼓浪屿 海岛 文艺 美食 情侣 浪漫 情调 轻松 小众景点",
+  "usage": {
+   "prompt_tokens": 191,
+   "completion_tokens": 115
+  }
+ },
+ "xiamen_architecture_history": {
+  "query": "厦门 南普陀寺 胡里山炮台 文化 建筑 历史 古迹",
+  "usage": {
+   "prompt_tokens": 195,
+   "completion_tokens": 271
+  }
+ },
+ "xiamen_bike_sea": {
+  "query": "厦门 海边骑行 日落 休闲 海景 放松",
+  "usage": {
+   "prompt_tokens": 190,
+   "completion_tokens": 19
+  }
+ },
+ "sanya_beach_resort": {
+  "query": "三亚 海滩 度假酒店 沙滩 放松 海景 躺平",
+  "usage": {
+   "prompt_tokens": 189,
+   "completion_tokens": 110
+  }
+ },
+ "sanya_family_relax": {
+  "query": "三亚 家庭游 海滩 文化景区 轻松活动",
+  "usage": {
+   "prompt_tokens": 193,
+   "completion_tokens": 33
+  }
+ },
+ "sanya_seafood_culture": {
+  "query": "三亚 海鲜 美食 文化 南山寺",
+  "usage": {
+   "prompt_tokens": 188,
+   "completion_tokens": 558
+  }
+ },
+ "beijing_history_palace": {
+  "query": "北京 故宫 天安门 皇家文化 历史古迹 中轴线",
+  "usage": {
+   "prompt_tokens": 192,
+   "completion_tokens": 23
+  }
+ },
+ "beijing_food_local": {
+  "query": "北京 特色美食 烤鸭 炸酱面 小吃 老字号",
+  "usage": {
+   "prompt_tokens": 194,
+   "completion_tokens": 41
+  }
+ },
+ "beijing_family_study": {
+  "query": "北京 天安门 故宫 亲子 研学 历史文化 轻松 带孩子",
+  "usage": {
+   "prompt_tokens": 191,
+   "completion_tokens": 438
+  }
+ },
+ "guilin_classic_landscape": {
+  "query": "桂林 漓江 兴坪古镇 遇龙河 竹筏漂流 自然风景 摄影拍照 旅游攻略",
+  "usage": {
+   "prompt_tokens": 200,
+   "completion_tokens": 121
+  }
+ },
+ "guilin_food_local": {
+  "query": "桂林 美食 小吃 米粉 桂林米粉 阳朔啤酒鱼",
+  "usage": {
+   "prompt_tokens": 191,
+   "completion_tokens": 229
+  }
+ },
+ "guilin_riverside_sunset_bike": {
+  "query": "桂林 遇龙河 日落 骑行 十里画廊 休闲 河畔",
+  "usage": {
+   "prompt_tokens": 194,
+   "completion_tokens": 42
+  }
+ }
+}

@@ -196,5 +196,38 @@
     "expected_title_keywords": ["天安门", "故宫", "颐和园", "行程"],
     "required_content_keywords": ["天安门", "故宫", "历史"],
     "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "guilin_classic_landscape",
+    "destination": "桂林",
+    "preferences": ["自然风景", "拍照", "竹筏"],
+    "pace": "适中",
+    "special_notes": "第一次去桂林，想看漓江和兴坪古镇，体验遇龙河竹筏漂流。",
+    "top_k": 5,
+    "expected_title_keywords": ["漓江", "遇龙河", "象鼻山", "行程"],
+    "required_content_keywords": ["漓江", "象鼻山", "兴坪古镇", "遇龙河竹筏漂流"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "guilin_food_local",
+    "destination": "桂林",
+    "preferences": ["美食", "小吃", "米粉"],
+    "pace": "适中",
+    "special_notes": "想尝桂林米粉和阳朔啤酒鱼这些本地特色。",
+    "top_k": 5,
+    "expected_title_keywords": ["经济实惠", "中档特色", "高端体验", "行程"],
+    "required_content_keywords": ["崇善米粉", "大师傅金奖啤酒鱼", "人均预算"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "guilin_riverside_sunset_bike",
+    "destination": "桂林",
+    "preferences": ["骑行", "日落", "休闲"],
+    "pace": "轻松",
+    "special_notes": "想在遇龙河边看日落，骑行十里画廊，放松不赶路。",
+    "top_k": 5,
+    "expected_title_keywords": ["遇龙河", "行程", "象鼻山", "漓江"],
+    "required_content_keywords": ["日落", "十里画廊", "骑行"],
+    "noise_title_keywords": ["文档开头"]
   }
 ]

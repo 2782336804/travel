@@ -11,6 +11,7 @@ from app.config import (
     LLM_BASE_URL,
     LLM_MAX_RETRIES,
     LLM_MODEL,
+    LLM_PLANNER_TIMEOUT_SECONDS,
     LLM_TIMEOUT_SECONDS,
 )
 from app.models.schemas import DayPlan, TripEditRequest, TripRequest
@@ -153,8 +154,8 @@ async def collect_trip_context(
     )
 
 
-def _build_chat_llm():
-    """创建通用 ChatOpenAI 实例。"""
+def _build_chat_llm(timeout: float | None = None):
+    """创建通用 ChatOpenAI 实例；timeout 缺省时使用全局 LLM_TIMEOUT_SECONDS。"""
     if not LLM_API_KEY:
         return None
 
@@ -168,7 +169,7 @@ def _build_chat_llm():
         temperature=0.3,
         api_key=LLM_API_KEY,
         base_url=LLM_BASE_URL or None,
-        timeout=LLM_TIMEOUT_SECONDS,
+        timeout=timeout if timeout is not None else LLM_TIMEOUT_SECONDS,
         max_retries=LLM_MAX_RETRIES,
     )
 
@@ -323,13 +324,16 @@ JSON 结构示例：
 
 
 def _dynamic_candidate_payload(candidates: list[PlaceCandidate]) -> list[dict[str, str]]:
-    """只把 Planner 做选择所需的稳定字段放入提示词。"""
+    """只把 Planner 做选择所需的稳定字段放入提示词。
+
+    地址、坐标等展示字段由服务层按 POI ID 回填，不发送给模型；
+    这样能显著减小候选池提示词的输入 token，降低慢响应场景下的超时概率。
+    """
     return [
         {
             "poi_id": candidate.poi_id,
             "name": candidate.name,
             "district": candidate.district or "",
-            "address": candidate.address or "",
             "type": candidate.type_name or "",
         }
         for candidate in candidates
@@ -343,7 +347,7 @@ async def generate_dynamic_planner_draft(
 ) -> tuple[DynamicPlannerDraft | None, dict[str, int]]:
     """让模型只能通过 POI ID 从动态候选池中选择行程实体。"""
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
-    llm = _build_chat_llm()
+    llm = _build_chat_llm(timeout=LLM_PLANNER_TIMEOUT_SECONDS)
     if llm is None:
         return None, empty_usage
 

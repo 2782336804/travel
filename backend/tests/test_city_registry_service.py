@@ -20,7 +20,7 @@ from app.services.city_registry_service import (  # noqa: E402
 
 def test_curated_city_registry_matches_current_guides() -> None:
     """迁移期注册表必须覆盖当前六份本地攻略。"""
-    assert set(CURATED_CITY_REGISTRY) == {"北京", "成都", "大理", "三亚", "厦门", "西安"}
+    assert set(CURATED_CITY_REGISTRY) == {"北京", "成都", "大理", "桂林", "三亚", "厦门", "西安"}
 
 
 @pytest.mark.parametrize(

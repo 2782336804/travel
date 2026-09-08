@@ -41,17 +41,16 @@ def _count_keyword_hits(text: str, keywords: list[str]) -> int:
     return sum(1 for keyword in keywords if keyword in text)
 
 
-async def _evaluate_case(case: dict[str, Any], known_destinations: set[str]) -> dict[str, Any]:
+async def _evaluate_case(
+    case: dict[str, Any],
+    known_destinations: set[str],
+    query: str,
+    rewrite_usage: dict[str, int],
+) -> dict[str, Any]:
     top_k = int(case.get("top_k", 5))
     destination = str(case["destination"])
     if destination not in known_destinations:
         raise ValueError(f"Unknown evaluation destination: {destination}")
-    query, _ = await build_destination_query(
-        destination=destination,
-        preferences=list(case.get("preferences", [])),
-        pace=case.get("pace"),
-        special_notes=case.get("special_notes"),
-    )
 
     start_time = time.perf_counter()
     chunks, rerank_usage, embedding_usage = await retrieve_travel_guide_chunks(
@@ -141,14 +140,83 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_CASES_PATH,
         help="Path to the RAG eval cases JSON file.",
     )
+    parser.add_argument(
+        "--rewrite-cache",
+        type=Path,
+        default=BACKEND_DIR / "eval" / "rewrite_cache.json",
+        help="Path to a JSON file caching generated rewrite queries for reproducible runs.",
+    )
+    parser.add_argument(
+        "--refresh-rewrite",
+        action="store_true",
+        help="Ignore the rewrite cache and regenerate all queries.",
+    )
     return parser
+
+
+EMPTY_USAGE = {"prompt_tokens": 0, "completion_tokens": 0}
+
+
+def _load_rewrite_cache(path: Path | None) -> dict[str, Any]:
+    if path is not None and path.exists():
+        try:
+            with path.open("r", encoding="utf-8") as file:
+                data = json.load(file)
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _save_rewrite_cache(path: Path | None, cache: dict[str, Any]) -> None:
+    if path is not None:
+        path.write_text(
+            json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+
+
+async def _resolve_case_query(
+    case: dict[str, Any],
+    cache: dict[str, Any],
+    refresh: bool,
+) -> tuple[str, dict[str, int]]:
+    """获取 case 的检索 query。
+
+    命中 rewrite 缓存时直接复用，保证评估结果可逐字复现；
+    未命中或 --refresh-rewrite 时调用 LLM 生成并写回缓存。
+    """
+    qid = str(case.get("id", ""))
+    if qid and not refresh and qid in cache:
+        entry = cache[qid]
+        return str(entry.get("query", "")), dict(entry.get("usage", EMPTY_USAGE))
+    query, usage = await build_destination_query(
+        destination=str(case["destination"]),
+        preferences=list(case.get("preferences", [])),
+        pace=case.get("pace"),
+        special_notes=case.get("special_notes"),
+        deterministic=True,
+    )
+    if qid:
+        cache[qid] = {"query": query, "usage": usage}
+    return query, usage
 
 
 async def main() -> int:
     args = build_parser().parse_args()
     cases = _load_cases(args.cases)
     known_destinations = _collect_case_destinations(cases)
-    results = [await _evaluate_case(case, known_destinations) for case in cases]
+    rewrite_cache = _load_rewrite_cache(args.rewrite_cache)
+
+    results = []
+    for case in cases:
+        query, rewrite_usage = await _resolve_case_query(
+            case, rewrite_cache, args.refresh_rewrite
+        )
+        results.append(
+            await _evaluate_case(case, known_destinations, query, rewrite_usage)
+        )
+    _save_rewrite_cache(args.rewrite_cache, rewrite_cache)
 
     for result in results:
         _print_case_result(result)
@@ -174,6 +242,7 @@ async def main() -> int:
 
     print("=== Summary ===")
     print(f"cases: {total}")
+    print("rewrite_mode: deterministic (temperature=0, rewrite cache enabled)")
     print(f"destinations: {'、'.join(sorted(known_destinations))}")
     print(f"top1_title_hit_rate: {top1_hits}/{total} ({top1_hits/total*100:.1f}%)")
     print(f"topk_title_hit_rate: {topk_hits}/{total} ({topk_hits/total*100:.1f}%)")

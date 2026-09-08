@@ -102,10 +102,13 @@ def test_generate_trip_returns_dynamic_itinerary_from_candidate_pool(monkeypatch
     captured_pool = None
     captured_candidate_kwargs: dict[str, object] = {}
 
-    async def build_dynamic_itinerary(request, candidate_pool):
+    async def build_dynamic_itinerary(request, candidate_pool, city_extract_usage=None):
         nonlocal captured_destination, captured_pool
         captured_destination = request.destination
         captured_pool = candidate_pool
+        assert city_extract_usage is not None
+        assert "prompt_tokens" in city_extract_usage
+        assert "completion_tokens" in city_extract_usage
         return {
             "trip_id": "trip_shanghai_dynamic",
             "destination": request.destination,
@@ -251,7 +254,10 @@ def test_generate_trip_returns_503_when_candidate_collection_fails(monkeypatch) 
 
 
 def test_generate_trip_rejects_city_with_insufficient_data(monkeypatch) -> None:
-    """无法确认的目的地返回资料不足，不进入规划。"""
+    """LLM 明确无法识别目的地时直接报错，不再拿原输入继续解析。"""
+
+    async def fake_get_city(_destination):
+        return "@@UNKNOWN@@", {"prompt_tokens": 0, "completion_tokens": 0}
 
     async def fake_resolve_city(_destination):
         return CityResolutionResult(
@@ -262,6 +268,7 @@ def test_generate_trip_rejects_city_with_insufficient_data(monkeypatch) -> None:
             source_type="amap_district",
         )
 
+    monkeypatch.setattr(trip_route, "get_city_by_description", fake_get_city)
     monkeypatch.setattr(trip_route, "resolve_city", fake_resolve_city)
     payload = build_generate_payload()
     payload["destination"] = "不存在的旅游城市"
@@ -270,12 +277,14 @@ def test_generate_trip_rejects_city_with_insufficient_data(monkeypatch) -> None:
 
     assert response.status_code == 422
     detail = response.json()["detail"]
-    assert detail["code"] == "insufficient_city_data"
-    assert detail["coverage_tier"] == "insufficient_data"
+    assert detail["code"] == "invalid_destination"
 
 
 def test_generate_trip_rejects_province_before_candidate_collection(monkeypatch) -> None:
     """省级目的地应提示输入具体城市，不得进入动态候选采集。"""
+
+    async def fake_get_city(_destination):
+        return "青海", {"prompt_tokens": 0, "completion_tokens": 0}
 
     async def fake_resolve_city(_destination):
         return CityResolutionResult(
@@ -292,6 +301,7 @@ def test_generate_trip_rejects_province_before_candidate_collection(monkeypatch)
     async def fail_collect_candidate_pool(**_kwargs):
         pytest.fail("省级目的地不应采集单城市候选")
 
+    monkeypatch.setattr(trip_route, "get_city_by_description", fake_get_city)
     monkeypatch.setattr(trip_route, "resolve_city", fake_resolve_city)
     monkeypatch.setattr(
         trip_route,
@@ -357,9 +367,22 @@ def test_generate_trip_normalizes_registered_city_before_planning(monkeypatch) -
             "source_notes": [],
         }
 
-    async def fake_generate_trip_itinerary(request):
+    async def fake_generate_trip_itinerary(request, city_extract_usage=None):
+        assert city_extract_usage is not None
+        assert "prompt_tokens" in city_extract_usage
+        assert "completion_tokens" in city_extract_usage
         return build_minimal_itinerary(request)
 
+    async def fake_resolve_city(_destination):
+        return CityResolutionResult(
+            requested_city="北京",
+            city="北京",
+            tier=CityCoverageTier.CURATED,
+            knowledge_status=CityKnowledgeStatus.READY,
+            source_type="local_knowledge",
+        )
+
+    monkeypatch.setattr(trip_route, "resolve_city", fake_resolve_city)
     monkeypatch.setattr(trip_route, "generate_trip_itinerary", fake_generate_trip_itinerary)
     payload = build_generate_payload()
     payload["destination"] = " 北京市 "
@@ -392,7 +415,53 @@ def test_edit_trip_returns_updated_itinerary_successfully(monkeypatch) -> None:
     async def fake_generate_day_edit_draft(request, target_day):
         return None, {"prompt_tokens": 0, "completion_tokens": 0}
 
+    def build_edit_ready_itinerary():
+        return {
+            "trip_id": "trip_edit_demo",
+            "destination": "大理",
+            "summary": "大理旅行计划",
+            "days": [
+                {
+                    "day_index": 1,
+                    "date": "2026-04-10",
+                    "theme": "古城漫游",
+                    "spots": [],
+                    "meals": [],
+                    "transport": [],
+                    "notes": [],
+                },
+                {
+                    "day_index": 2,
+                    "date": "2026-04-11",
+                    "theme": "洱海环游",
+                    "spots": [],
+                    "meals": [],
+                    "transport": [],
+                    "notes": [],
+                },
+            ],
+            "estimated_budget": 0,
+            "budget_breakdown": {
+                "transport": 0,
+                "hotel": 0,
+                "meals": 0,
+                "tickets": 0,
+                "other": 0,
+                "total": 0,
+            },
+            "tips": [],
+            "source_notes": [],
+        }
+
+    async def fake_generate_trip_itinerary(request, city_extract_usage=None):
+        return build_edit_ready_itinerary()
+
     monkeypatch.setattr(trip_service, "generate_day_edit_draft", fake_generate_day_edit_draft)
+    monkeypatch.setattr(
+        trip_route,
+        "generate_trip_itinerary",
+        fake_generate_trip_itinerary,
+    )
 
     generated_response = client.post("/trip/generate", json=build_generate_payload())
     generated_itinerary = generated_response.json()

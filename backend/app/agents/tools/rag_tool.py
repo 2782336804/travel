@@ -98,7 +98,7 @@ def _extract_note_keywords(special_notes: str | None, destination: str | None = 
     return keywords
 
 
-def _build_chat_llm():
+def _build_chat_llm(temperature: float = 0.2, seed: int | None = None):
     """创建 ChatOpenAI 实例，用于 Query Rewrite。"""
     if not LLM_API_KEY:
         return None
@@ -108,7 +108,8 @@ def _build_chat_llm():
         return None
     return ChatOpenAI(
         model=LLM_MODEL,
-        temperature=0.2,
+        temperature=temperature,
+        seed=seed,
         api_key=LLM_API_KEY,
         base_url=LLM_BASE_URL or None,
         timeout=LLM_TIMEOUT_SECONDS,
@@ -132,10 +133,17 @@ async def llm_rewrite_query(
     preferences: list[str] | None = None,
     pace: str | None = None,
     special_notes: str | None = None,
+    deterministic: bool = False,
 ) -> tuple[str | None, dict[str, int]]:
-    """用 LLM 把用户旅行需求改写成适合向量检索的 query。返回 (query, token_usage)。"""
+    """用 LLM 把用户旅行需求改写成适合向量检索的 query。返回 (query, token_usage)。
+
+    deterministic=True 时使用 temperature=0，用于评估等需要稳定复现的场景。
+    """
     empty_usage = {"prompt_tokens": 0, "completion_tokens": 0}
-    llm = _build_chat_llm()
+    llm = _build_chat_llm(
+        temperature=0.0 if deterministic else 0.2,
+        seed=42 if deterministic else None,
+    )
     if llm is None:
         return None, empty_usage
 
@@ -210,6 +218,7 @@ async def build_destination_query(
     preferences: list[str] | None = None,
     pace: str | None = None,
     special_notes: str | None = None,
+    deterministic: bool = False,
 ) -> tuple[str, dict[str, int]]:
     """把目的地、偏好、节奏和备注改写成更贴近检索场景的 query。返回 (query, token_usage)。"""
     llm_query, token_usage = await llm_rewrite_query(
@@ -217,6 +226,7 @@ async def build_destination_query(
         preferences=preferences,
         pace=pace,
         special_notes=special_notes,
+        deterministic=deterministic,
     )
     if llm_query:
         return llm_query, token_usage

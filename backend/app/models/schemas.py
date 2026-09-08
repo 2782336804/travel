@@ -126,6 +126,8 @@ class DayPlan(BaseModel):
 class TokenUsage(BaseModel):
     """LLM 调用的 token 消耗统计。"""
 
+    city_extract_prompt_tokens: int = Field(default=0, ge=0, description="城市提取输入 token")
+    city_extract_completion_tokens: int = Field(default=0, ge=0, description="城市提取输出 token")
     rewrite_prompt_tokens: int = Field(default=0, ge=0, description="Query Rewrite 输入 token")
     rewrite_completion_tokens: int = Field(default=0, ge=0, description="Query Rewrite 输出 token")
     embedding_prompt_tokens: int = Field(default=0, ge=0, description="Query Embedding 输入 token")
@@ -138,7 +140,8 @@ class TokenUsage(BaseModel):
     @property
     def total_prompt_tokens(self) -> int:
         return (
-            self.rewrite_prompt_tokens
+            self.city_extract_prompt_tokens
+            + self.rewrite_prompt_tokens
             + self.embedding_prompt_tokens
             + self.planner_prompt_tokens
             + self.rerank_prompt_tokens
@@ -147,7 +150,8 @@ class TokenUsage(BaseModel):
     @property
     def total_completion_tokens(self) -> int:
         return (
-            self.rewrite_completion_tokens
+            self.city_extract_completion_tokens
+            + self.rewrite_completion_tokens
             + self.embedding_completion_tokens
             + self.planner_completion_tokens
             + self.rerank_completion_tokens

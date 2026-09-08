@@ -99,6 +99,20 @@ def _score_chunk_for_rerank(
 _NOISE_TITLES = {"文档开头"}
 
 
+def _is_accommodation_budget_chunk(chunk: dict[str, str]) -> bool:
+    """住宿预算信息块（如“经济型（200 元/晚以下）”），属于辅助参考信息。"""
+    return "元/晚" in chunk.get("title", "")
+
+
+def _defer_accommodation_budget_chunks(
+    chunks: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """把住宿预算块整体移到末尾，避免在景点型查询中霸榜 Top1，同时保留在结果内。"""
+    budget_chunks = [chunk for chunk in chunks if _is_accommodation_budget_chunk(chunk)]
+    other_chunks = [chunk for chunk in chunks if not _is_accommodation_budget_chunk(chunk)]
+    return other_chunks + budget_chunks
+
+
 def _extract_rerank_token_usage(response_data: dict) -> tuple[dict[str, int], bool]:
     """只读取接口返回的官方 usage；没有 usage 时不做本地估算。"""
     usage = response_data.get("usage") or response_data.get("output", {}).get("usage") or {}
@@ -287,7 +301,7 @@ async def rerank_guide_chunks(
                 enriched["rerank_score"] = item["s"]
                 enriched["rerank_reasons"] = [f"cross-encoder:{item['s']:.4f}"]
                 reranked.append(enriched)
-        return reranked[:top_k], empty_usage
+        return _defer_accommodation_budget_chunks(reranked)[:top_k], empty_usage
     logger.info("rerank cache miss: query=%s", query)
 
     # 优先尝试 DashScope Cross-encoder Rerank
@@ -308,7 +322,7 @@ async def rerank_guide_chunks(
                 enriched_chunk["rerank_score"] = round(score, 4)
                 enriched_chunk["rerank_reasons"] = [f"cross-encoder:{score:.4f}"]
                 reranked.append(enriched_chunk)
-        return reranked[:top_k], rerank_token_usage
+        return _defer_accommodation_budget_chunks(reranked)[:top_k], rerank_token_usage
 
     # fallback 到规则级 Rerank
     print("[rerank] qwen3-rerank unavailable, using rule-based rerank")
@@ -321,7 +335,8 @@ async def rerank_guide_chunks(
         scored_chunks.append((score, -index, enriched_chunk))
 
     scored_chunks.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return [chunk for _, _, chunk in scored_chunks[:top_k]], empty_usage
+    ordered = [chunk for _, _, chunk in scored_chunks]
+    return _defer_accommodation_budget_chunks(ordered)[:top_k], empty_usage
 
 
 async def retrieve_travel_guide_chunks(

@@ -17,7 +17,7 @@ def test_loaded_guide_chunks_have_known_destinations() -> None:
 
     assert chunks
     assert {chunk["destination"] for chunk in chunks} == {
-        "北京", "成都", "大理", "三亚", "厦门", "西安"
+        "北京", "成都", "大理", "桂林", "三亚", "厦门", "西安"
     }
     assert all(chunk["destination"] for chunk in chunks)
 
@@ -104,7 +104,12 @@ async def test_evaluation_counts_metadata_mismatch_as_cross_destination_pollutio
         fake_retrieve_travel_guide_chunks,
     )
 
-    result = await evaluator._evaluate_case(case, {"大理", "北京"})
+    result = await evaluator._evaluate_case(
+        case,
+        {"大理", "北京"},
+        "大理 古城",
+        {"prompt_tokens": 0, "completion_tokens": 0},
+    )
 
     assert result["pollution_count"] == 1
 

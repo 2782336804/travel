@@ -39,6 +39,8 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
 LLM_BASE_URL_2 = os.getenv("LLM_BASE_URL_2", "")
 LLM_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "60"))
 LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
+# 行程 Planner（含动态城市 Planner）生成 JSON 草稿负载更重，单独使用更宽松的超时，避免被全局短超时打断
+LLM_PLANNER_TIMEOUT_SECONDS = int(os.getenv("LLM_PLANNER_TIMEOUT_SECONDS", "60"))
 
 
 # RAG / 向量库配置
